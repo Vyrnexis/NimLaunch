@@ -1,0 +1,321 @@
+# ==========================
+# NimLaunch Configuration
+# ==========================
+# This file controls how NimLaunch looks and behaves.
+# All settings are optional — if removed, defaults will be used.
+# Edit values, save, and restart NimLaunch to apply changes.
+# Colors must be in HEX format (e.g., "#RRGGBB").
+
+[window]
+width = 500                       # Width of the launcher window in pixels
+max_visible_items = 10            # Number of items visible at once (affects height)
+center = true                     # true: center window horizontally; false: use position_x/position_y
+position_x = 20                   # X position in pixels when center=false
+position_y = 500                  # Y position in pixels when center=false
+vertical_align = "one-third"      # Only used when center=true; "top", "center", or "one-third"
+
+[font]
+fontname = "Dejavu:size=16"    # Font name & size (Xft format: "Font Family:size=N")
+
+[input]
+prompt = "> "                     # Prompt prefix shown before your query
+cursor = "_"                      # Cursor character displayed after query text
+vim_mode = false                  # true enables Vim-style modes/hjkl navigation
+
+[terminal]
+program = "kitty  -e"        # Terminal emulator for slash commands (/ ...)
+                                  # If not found, NimLaunch will fall back to a default
+
+[border]
+width = 2                         # Border thickness in pixels (0 = no border)
+
+[icons]
+enabled = true                    # Set to false to hide icons in the list
+
+# ==========================
+# Shortcuts
+# ==========================
+# Define custom prefix triggers. Each shortcut supports:
+#   prefix  = letters you trigger with ':' (e.g., ":g"); leading/trailing ':' is optional
+#   label   = text shown before your query in the results list
+#   base    = template containing optional {query} placeholder
+#   mode    = "url" (default), "shell", or "file"
+
+[[shortcuts]]
+prefix = ":g"
+label  = "Search Google: "
+base   = "https://www.google.com/search?q={query}"
+mode   = "url"
+
+[[shortcuts]]
+prefix = ":w"
+label  = "Search Wiki: "
+base   = "https://en.wikipedia.org/wiki/Special:Search?search={query}"
+mode   = "url"
+
+[[shortcuts]]
+prefix = ":y"
+label  = "Search YouTube: "
+base   = "https://www.youtube.com/results?search_query={query}"
+mode   = "url"
+
+# ==========================
+# Run commands
+# ==========================
+# Use `:r` (or `!`) to execute shell commands directly without a custom shortcut.
+
+# ==========================
+# Power actions
+# ==========================
+# Configure system commands exposed under the `p` prefix (type `:p` in the UI).
+# `mode` accepts "spawn" (background) or "terminal" (runs inside
+# your configured terminal). `stay_open = true` keeps the launcher visible.
+
+[power]
+prefix = ":p"           # Any prefix you write (with/without ':') maps to one trigger
+
+[[power_actions]]
+label   = "Shutdown"
+command = "systemctl poweroff"
+mode    = "spawn"
+
+[[power_actions]]
+label   = "Reboot"
+command = "systemctl reboot"
+mode    = "spawn"
+
+[[power_actions]]
+label       = "Logout"
+command     = "loginctl terminate-user $USER"
+mode        = "spawn"
+
+# ==========================
+# Themes
+# ==========================
+# Add or remove [[themes]] blocks to customize appearance.
+# The "name" field is what you'll see in the `:t` theme selector.
+# Colors:
+#   bgColorHex          = Window background
+#   fgColorHex          = Normal text color
+#   highlightBgColorHex = Background of selected/highlighted item
+#   highlightFgColorHex = Text color of selected/highlighted item
+#   borderColorHex      = Window border color
+#   matchFgColorHex     = Color for matching characters in search results
+#
+# Tip: You can quickly preview themes in-app with the `t:` command.
+
+[[themes]]
+name                = "Arstotzka"
+bgColorHex          = "#211f1e"
+fgColorHex          = "#edebe6"
+highlightBgColorHex = "#292725"
+highlightFgColorHex = "#edebe6"
+borderColorHex      = "#3f3a36"
+matchFgColorHex     = "#516b6b"
+
+[[themes]]
+name                = "Ayu Dark"
+bgColorHex          = "#0F1419"
+fgColorHex          = "#BFBDB6"
+highlightBgColorHex = "#59C2FF"
+highlightFgColorHex = "#0F1419"
+borderColorHex      = "#1F2328"
+matchFgColorHex     = ""
+
+[[themes]]
+name                = "Ayu Light"
+bgColorHex          = "#FAFAFA"
+fgColorHex          = "#5C6773"
+highlightBgColorHex = "#399EE6"
+highlightFgColorHex = "#FAFAFA"
+borderColorHex      = "#F0F0F0"
+matchFgColorHex     = ""
+
+[[themes]]
+name                = "Azure"
+bgColorHex          = "#181d26"
+fgColorHex          = "#ffffff"
+highlightBgColorHex = "#33333c"
+highlightFgColorHex = "#ffffff"
+borderColorHex      = "#414d62"
+matchFgColorHex     = "#52708b"
+
+[[themes]]
+name                = "Bold"
+bgColorHex          = "#2a2626"
+fgColorHex          = "#ffffff"
+highlightBgColorHex = "#393434"
+highlightFgColorHex = "#ffffff"
+borderColorHex      = "#534b4b"
+matchFgColorHex     = "#f0624b"
+
+[[themes]]
+name                = "Box UK"
+bgColorHex          = "#ffffff"
+fgColorHex          = "#414f5c"
+highlightBgColorHex = "#eeeeee"
+highlightFgColorHex = "#414f5c"
+borderColorHex      = "#b8b6b1"
+matchFgColorHex     = "#019d76"
+
+[[themes]]
+name                = "Carbonight"
+bgColorHex          = "#2e2c2b"
+fgColorHex          = "#b0b0b0"
+highlightBgColorHex = "#3b3633"
+highlightFgColorHex = "#2e2c2b"
+borderColorHex      = "#423f3d"
+matchFgColorHex     = "#8c8c8c"
+
+[[themes]]
+name                = "Carbonight Contrast"
+bgColorHex          = "#000000"
+fgColorHex          = "#ffffff"
+highlightBgColorHex = "#151515"
+highlightFgColorHex = "#ffffff"
+borderColorHex      = "#423f3d"
+matchFgColorHex     = "#8c8c8c"
+
+[[themes]]
+name                = "Catppuccin Frappe"
+bgColorHex          = "#303446"
+fgColorHex          = "#C6D0F5"
+highlightBgColorHex = "#8CAAEE"
+highlightFgColorHex = "#303446"
+borderColorHex      = "#414559"
+matchFgColorHex     = ""
+
+[[themes]]
+name                = "Catppuccin Latte"
+bgColorHex          = "#EFF1F5"
+fgColorHex          = "#4C4F69"
+highlightBgColorHex = "#1E66F5"
+highlightFgColorHex = "#EFF1F5"
+borderColorHex      = "#BCC0CC"
+matchFgColorHex     = ""
+
+[[themes]]
+name                = "Catppuccin Macchiato"
+bgColorHex          = "#24273A"
+fgColorHex          = "#CAD3F5"
+highlightBgColorHex = "#8AADF4"
+highlightFgColorHex = "#24273A"
+borderColorHex      = "#363A4F"
+matchFgColorHex     = ""
+
+[[themes]]
+name                = "Catppuccin Mocha"
+bgColorHex          = "#1E1E2E"
+fgColorHex          = "#CDD6F4"
+highlightBgColorHex = "#89B4FA"
+highlightFgColorHex = "#1E1E2E"
+borderColorHex      = "#313244"
+matchFgColorHex     = ""
+
+[[themes]]
+name                = "Charcoal Dark"
+bgColorHex          = "#120F09"
+fgColorHex          = "#C0A179"
+highlightBgColorHex = "#35291D"
+highlightFgColorHex = "#D6B891"
+borderColorHex      = "#887254"
+matchFgColorHex     = ""
+
+[[themes]]
+name                = "Charcoal Light"
+bgColorHex          = "#d6b891"
+fgColorHex          = "#35291d"
+highlightBgColorHex = "#a28662"
+highlightFgColorHex = "#120f09"
+borderColorHex      = "#66553f"
+matchFgColorHex     = ""
+
+[[themes]]
+name                = "Chocolate"
+bgColorHex          = "#150f08"
+fgColorHex          = "#ffffff"
+highlightBgColorHex = "#362715"
+highlightFgColorHex = "#ffffff"
+borderColorHex      = "#795431"
+matchFgColorHex     = "#ccb697"
+
+[[themes]]
+name                = "Cobalt"
+bgColorHex          = "#002240"
+fgColorHex          = "#FFFFFF"
+highlightBgColorHex = "#007ACC"
+highlightFgColorHex = "#002240"
+borderColorHex      = "#003366"
+matchFgColorHex     = ""
+
+[[themes]]
+name                = "Crisp"
+bgColorHex          = "#221a22"
+fgColorHex          = "#ffffff"
+highlightBgColorHex = "#1c151c"
+highlightFgColorHex = "#ffffff"
+borderColorHex      = "#574457"
+matchFgColorHex     = "#765478"
+
+[[themes]]
+name                = "Darkside"
+bgColorHex          = "#222324"
+fgColorHex          = "#bababa"
+highlightBgColorHex = "#303333"
+highlightFgColorHex = "#bababa"
+borderColorHex      = "#494b4d"
+matchFgColorHex     = "#e8341c"
+
+[[themes]]
+name                = "Darkside Contrast"
+bgColorHex          = "#000000"
+fgColorHex          = "#bababa"
+highlightBgColorHex = "#151515"
+highlightFgColorHex = "#bababa"
+borderColorHex      = "#494b4d"
+matchFgColorHex     = "#e8341c"
+
+[[themes]]
+name                = "Default"
+bgColorHex          = "#2E3440"
+fgColorHex          = "#D8DEE9"
+highlightBgColorHex = "#88C0D0"
+highlightFgColorHex = "#2E3440"
+borderColorHex      = "#8BE9FD"
+matchFgColorHex     = "#f8c291"
+
+[[themes]]
+name                = "Dracula"
+bgColorHex          = "#282A36"
+fgColorHex          = "#F8F8F2"
+highlightBgColorHex = "#BD93F9"
+highlightFgColorHex = "#282A36"
+borderColorHex      = "#44475A"
+matchFgColorHex     = ""
+
+[[themes]]
+name                = "Earthsong"
+bgColorHex          = "#36312c"
+fgColorHex          = "#ebd1b7"
+highlightBgColorHex = "#45403b"
+highlightFgColorHex = "#ebd1b7"
+borderColorHex      = "#7a7267"
+matchFgColorHex     = "#db784d"
+
+[[themes]]
+name                = "Earthsong Contrast"
+bgColorHex          = "#12100f"
+fgColorHex          = "#ebd1b7"
+highlightBgColorHex = "#282521"
+highlightFgColorHex = "#ebd1b7"
+borderColorHex      = "#7a7267"
+matchFgColorHex     = "#db784d"
+
+[[themes]]
+name                = "Earthsong Light"
+bgColorHex          = "#ffffff"
+fgColorHex          = "#4d463e"
+highlightBgColorHex = "#eeeeee"
+highlightFgColorHex = "#4d463e"
+borderColorHex      = "#d6cab9"
+matchFgColorHex     = "#db784d"
