@@ -2,7 +2,7 @@
 
 NimLaunch is a lightweight, keyboard-first launcher with fuzzy search, themes, shortcuts, power actions, and Vim mode. This build uses SDL2 for native Wayland/X11 support (no Xlib/Xft), with GPU-backed compositing for rendering.
 
-![NimLaunch screenshot](Screenshot.1.png)  ![NimLaunch screenshot](Screenshot.1.png)
+![NimLaunch screenshot](Screenshot.1.png)  ![NimLaunch screenshot](NimLaunch-SDL2.gif)
 
 ## Features
 - Fuzzy app search with typo tolerance; MRU bias for empty query.
