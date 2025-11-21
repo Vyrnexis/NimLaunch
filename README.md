@@ -10,9 +10,10 @@ NimLaunch is a lightweight, keyboard-first launcher with fuzzy search, themes, s
 - Vim mode (optional): hjkl navigation, `/ : !` command bar, `gg/G`, `:q`, etc.
 - Themes with live preview; clock overlay; status/toast messages.
 - Icons from `.desktop` files (PNG/SVG) with a fallback alias map; icons can be toggled off in config.
+- Window opacity setting (0.1–1.0) via SDL2 when supported.
 
 ## Install
-Download the compiled binary in the release page
+Grab a compiled binary from the releases:
 https://github.com/DrunkenAlcoholic/NimLaunch-SDL2/releases
 
 ## Build (Arch examples)
@@ -25,7 +26,8 @@ git clone https://github.com/DrunkenAlcoholic/NimLaunch-SDL2.git
 cd NimLaunch-SDL2
 ```
 ```bash
-nimble release
+# nimble tasks target src/main.nim
+nimble release   # or: nimble debug
 ```
 or
 ```bash
@@ -36,7 +38,7 @@ nim c -d:release --opt:speed -o:./bin/nimlaunch src/main.nim
 cd bin
 ./bin/nimlaunch
 ```
-it is Suggest to place the binary(nimlaunch) in one of your enviroment PATHS e.g ~/.local/bin and set a keybind to nimlauch, the toml config will be automatically genrated on first run.
+Place the binary (`nimlaunch`) somewhere on your `PATH` (e.g., `~/.local/bin`) and bind a hotkey to launch it. The TOML config is auto-generated on first run.
 
 ## Wayland/X11
 Runs natively on both via SDL2 (no XWayland required on Wayland). Borderless window like the original. GPU compositing handles fills/icons/text blits; SDL_ttf still rasterizes glyphs in software.
@@ -100,8 +102,11 @@ on first run, shipping with sensible defaults and a long list of themes.
 ```toml
 [window]
 width = 500
+opacity = 1.0          # 0.1–1.0; may be ignored on some Wayland setups
 max_visible_items = 10
 center = true
+position_x = 20
+position_y = 500
 vertical_align = "one-third"
 
 [font]
