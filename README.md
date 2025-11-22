@@ -41,7 +41,7 @@ sudo apt install libsdl2-dev libsdl2-ttf-dev libsdl2-image-dev librsvg2-bin font
 ```
 ### OpenSUSE
 ```bash
-sudo zypper install SDL2 SDL2_ttf SDL2_image-devel librsvg dejavu-fonts
+sudo zypper install SDL2 SDL2_ttf SDL2_image-devel rsvg-convert dejavu-fonts
 ```
 
 ### Build
