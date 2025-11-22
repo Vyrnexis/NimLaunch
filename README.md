@@ -17,7 +17,20 @@ Grab a compiled binary from the releases:
 https://github.com/DrunkenAlcoholic/NimLaunch-SDL2/releases
 
 ## Build
-Deps: `nim >= 2.0`, `sdl2`, `sdl2_ttf`, `sdl2_image`, `librsvg` (`rsvg-convert`), plus a font (default `ttf-dejavu`).
+> [!NOTE]
+> Deps: `nim >= 2.0`, `sdl2`, `sdl2_ttf`, `sdl2_image`, `librsvg`, plus a font (default `ttf-dejavu`).
+
+> [!TIP] 
+> install a nerd font and change the prompt and cursor character's for a nice effect.
+> ```toml
+> [font]
+> fontname = "MesloLGL Nerd Font Propo:size=16"
+> 
+> [input]
+> prompt = " "
+> cursor = " "
+> ```
+
 ### Archlinux
 ```bash
 sudo pacman -S sdl2 sdl2_ttf sdl2_image librsvg ttf-dejavu --needed
