@@ -16,11 +16,22 @@ NimLaunch is a lightweight, keyboard-first launcher with fuzzy search, themes, s
 Grab a compiled binary from the releases:
 https://github.com/DrunkenAlcoholic/NimLaunch-SDL2/releases
 
-## Build (Arch examples)
+## Build
 Deps: `nim >= 2.0`, `sdl2`, `sdl2_ttf`, `sdl2_image`, `librsvg` (`rsvg-convert`), plus a font (default `ttf-dejavu`).
+### Archlinux
 ```bash
-sudo pacman -S sdl2 sdl2_ttf sdl2_image ttf-dejavu librsvg --needed
+sudo pacman -S sdl2 sdl2_ttf sdl2_image librsvg ttf-dejavu --needed
 ```
+### Ubuntu
+```bash
+sudo apt install libsdl2-dev libsdl2-ttf-dev libsdl2-image-dev librsvg2-bin fonts-dejavu
+```
+### OpenSUSE
+```bash
+sudo zypper install SDL2 SDL2_ttf SDL2_image-devel librsvg dejavu-fonts
+```
+
+### Build
 ```bash
 git clone https://github.com/DrunkenAlcoholic/NimLaunch-SDL2.git
 cd NimLaunch-SDL2
