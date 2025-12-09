@@ -75,6 +75,27 @@ proc openVimCommandForTrigger(text: string; shiftHeld: bool; suppressText: var b
 proc handleVimNormalKey(sym: cint; text: string; modState: int16; suppressText: var bool): bool =
   ## Handle Vim-mode nav/open keys when not in command-line. Return true if consumed.
   let shiftHeld = (modState and ShiftMask) != 0
+  ## Directly detect slash/colon/bang on keycodes so non-US layouts and numpad divide work.
+  case sym
+  of K_SLASH, K_KP_DIVIDE:
+    vim.pendingG = false
+    openVimCommand("")
+    suppressText = true
+    return true
+  of K_SEMICOLON:
+    if shiftHeld:
+      vim.pendingG = false
+      openVimCommand(":")
+      suppressText = true
+      return true
+  of K_EXCLAIM:
+    vim.pendingG = false
+    openVimCommand("!")
+    suppressText = true
+    return true
+  else:
+    discard
+
   case sym
   of K_g:
     if shiftHeld:
