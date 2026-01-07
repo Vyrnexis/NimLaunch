@@ -1,10 +1,10 @@
 ## app_core.nim — port of NimLaunch logic (search, actions) for SDL2 UI.
 
-import std/[os, osproc, strutils, options, tables, sequtils, json, uri, sets,
-            algorithm, times, heapqueue, streams, exitprocs]
+import std/[os, strutils, options, tables, sequtils, json, uri, sets,
+            algorithm, times, heapqueue, exitprocs]
 when defined(posix):
   import posix
-import ./[state, parser, gui, utils, settings, paths]
+import ./[state, parser, gui, utils, settings, paths, fuzzy, proc_utils, search]
 
 when defined(posix):
   when not declared(flock):
@@ -21,9 +21,6 @@ var
   configFilesCache: seq[DesktopApp] = @[]
 
 const
-  SearchDebounceMs* = 240   # debounce for s: while typing (unified)
-  SearchFdCap      = 800    # cap external search results from fd/locate
-  SearchShowCap    = 250    # cap items we score per rebuild
   CacheFormatVersion = 4
   iconAliases = {
     "code": "visual-studio-code",
@@ -141,152 +138,7 @@ else:
       discard
     true
 
-# ── Shell / process helpers ─────────────────────────────────────────────
-proc hasHoldFlagLocal(args: seq[string]): bool =
-  ## Detect common "keep window open" flags passed to terminals.
-  for a in args:
-    case a
-    of "--hold", "-hold", "--keep-open", "--wait", "--noclose",
-       "--stay-open", "--keep", "--keepalive":
-      return true
-    else:
-      discard
-  false
-
-proc appendShellArgs(argv: var seq[string]; shExe: string; shArgs: seq[string]) =
-  ## Append shell executable and its arguments to `argv`.
-  argv.add shExe
-  for a in shArgs: argv.add a
-
-proc buildTerminalArgs(base: string; termArgs: seq[string]; shExe: string;
-                       shArgs: seq[string]): seq[string] =
-  ## Normalize command-line to launch a shell inside major terminals.
-  var argv = termArgs
-  case base
-  of "gnome-terminal", "kgx":
-    argv.add "--"
-  of "wezterm":
-    argv = @["start"] & argv
-  else:
-    argv.add "-e"
-  appendShellArgs(argv, shExe, shArgs)
-  argv
-
-proc buildShellCommand(cmd, shExe: string; hold = false):
-    tuple[fullCmd: string, shArgs: seq[string]] =
-  ## Run user's command in a group, and add a robust hold prompt when needed.
-  ## Grouping prevents suffix binding to pipelines/conditionals.
-  let suffix = (if hold: "" else: "; printf '\\n[Press Enter to close]\\n'; read -r _")
-  let fullCmd = "{ " & cmd & " ; }" & suffix
-  let shArgs = if shExe.endsWith("bash"): @["-lc", fullCmd] else: @["-c", fullCmd]
-  (fullCmd, shArgs)
-
-proc runCommand(cmd: string) =
-  ## Run `cmd` in the user's terminal; fall back to /bin/sh if none.
-  let bash = findExe("bash")
-  let shExe = if bash.len > 0: bash else: "/bin/sh"
-
-  var parts = tokenize(chooseTerminal()) # parser.tokenize on config.terminalExe/$TERMINAL
-  if parts.len == 0:
-    let (_, shArgs) = buildShellCommand(cmd, shExe)
-    discard startProcess(shExe, args = shArgs,
-                         options = {poDaemon, poParentStreams})
-    return
-
-  let exe = parts[0]
-  let exePath = findExe(exe)
-  if exePath.len == 0:
-    let (_, shArgs) = buildShellCommand(cmd, shExe)
-    discard startProcess(shExe, args = shArgs,
-                         options = {poDaemon, poParentStreams})
-    return
-
-  var termArgs = if parts.len > 1: parts[1..^1] else: @[]
-  let base = exe.extractFilename()
-  let hold = hasHoldFlagLocal(termArgs)
-  let (_, shArgs) = buildShellCommand(cmd, shExe, hold)
-  let argv = buildTerminalArgs(base, termArgs, shExe, shArgs)
-  discard startProcess(exePath, args = argv,
-                       options = {poDaemon, poParentStreams})
-
-proc spawnShellCommand(cmd: string): bool =
-  ## Execute *cmd* via /bin/sh in the background; return success.
-  try:
-    discard startProcess("/bin/sh", args = ["-c", cmd],
-                         options = {poDaemon, poParentStreams})
-    true
-  except CatchableError as e:
-    echo "spawnShellCommand failed: ", cmd, " (", e.name, "): ", e.msg
-    false
-
-proc openUrl(url: string) =
-  ## Open *url* via xdg-open (no shell involved). Log failures for diagnosis.
-  try:
-    discard startProcess("/usr/bin/env", args = @["xdg-open", url],
-                         options = {poDaemon, poParentStreams})
-  except CatchableError as e:
-    echo "openUrl failed: ", url, " (", e.name, "): ", e.msg
-
 # ── Small searches: ~/.config helper ────────────────────────────────────
-proc shortenPath(p: string; maxLen = 80): string =
-  ## Replace $HOME with ~, and ellipsize the middle if too long.
-  var s = p
-  let home = getHomeDir()
-  if s.startsWith(home & "/"): s = "~" & s[home.len .. ^1]
-  if s.len <= maxLen: return s
-  let keep = maxLen div 2 - 2
-  if keep <= 0: return s
-  result = s[0 ..< keep] & "…" & s[s.len - keep .. ^1]
-
-proc scanFilesFast*(query: string): seq[string] =
-  ## Fast file search in order:
-  ##  1) `fd` (fast, respects .gitignore)
-  ##  2) `locate -i` (DB backed, may be stale)
-  ##  3) bounded walk under $HOME (slowest)
-  let home  = getHomeDir()
-  let ql    = query.toLowerAscii
-  let limit = SearchFdCap
-
-  try:
-    ## --- Prefer `fd` ----------------------------------------------------
-    let fdExe = findExe("fd")
-    if fdExe.len > 0:
-      let args = @[
-        "-i", "--type", "f", "--absolute-path",
-        "--color", "never",
-        "--max-results", $limit,
-        "--fixed-strings",
-        query, home
-      ]
-      let p = startProcess(fdExe, args = args, options = {poUsePath, poStdErrToStdOut})
-      defer: close(p)
-      let output = p.outputStream.readAll()
-      for line in output.splitLines():
-        if line.len > 0: result.add(line)
-      return
-
-    ## --- Fallback: `locate -i` -----------------------------------------
-    let locExe = findExe("locate")
-    if locExe.len > 0:
-      let p = startProcess(locExe, args = @["-i", "-l", $limit, query],
-                           options = {poUsePath, poStdErrToStdOut})
-      defer: close(p)
-      let output = p.outputStream.readAll()
-      for line in output.splitLines():
-        if line.len > 0: result.add(line)
-      return
-
-    ## --- Final fallback: bounded walk under $HOME -----------------------
-    var count = 0
-    for path in walkDirRec(home, yieldFilter = {pcFile}):
-      if path.toLowerAscii.contains(ql):
-        result.add(path)
-        inc count
-        if count >= limit: break
-
-  except CatchableError as e:
-    echo "scanFilesFast warning: ", e.name, ": ", e.msg
-
 proc refreshConfigFiles() =
   ## Build the cached ~/.config file list once per run.
   configFilesCache.setLen(0)
@@ -375,13 +227,6 @@ proc loadApplications*() =
     except CatchableError:
       echo "Warning: cache not saved."
 
-# ── Fuzzy match + helpers ───────────────────────────────────────────────
-proc recentBoost(name: string): int =
-  ## Small score bonus for recently used apps (first is strongest).
-  let idx = recentApps.find(name)
-  if idx >= 0: return max(0, 200 - idx * 40)
-  0
-
 proc takePrefix(input, pfx: string; rest: var string): bool =
   ## Consume a command prefix and return the remainder (trimmed).
   let n = pfx.len
@@ -393,106 +238,6 @@ proc takePrefix(input, pfx: string; rest: var string): bool =
         rest = input[n+1 .. ^1].strip(); return true
       rest = input[n .. ^1].strip(); return true
   false
-
-proc subseqPositions(q, t: string): seq[int] =
-  ## Case-insensitive subsequence positions of q within t (for highlight).
-  if q.len == 0: return @[]
-  let lq = q.toLowerAscii
-  let lt = t.toLowerAscii
-  var qi = 0
-  for i in 0 ..< lt.len:
-    if qi < lq.len and lt[i] == lq[qi]:
-      result.add i
-      inc qi
-      if qi == lq.len: return
-  result.setLen(0)
-
-proc subseqSpans(q, t: string): seq[(int, int)] =
-  ## Convert positions to 1-char spans for highlighting.
-  for p in subseqPositions(q, t): result.add (p, 1)
-
-proc isWordBoundary(lt: string; idx: int): bool =
-  ## Basic token boundary check for nicer scoring.
-  if idx <= 0: return true
-  let c = lt[idx-1]
-  c == ' ' or c == '-' or c == '_' or c == '.' or c == '/'
-
-proc scoreMatch(q, t, fullPath, home: string): int =
-  ## Heuristic score for matching q against t (higher is better).
-  ## Typo-friendly: 1 edit (ins/del/sub) or one adjacent transposition.
-  if q.len == 0: return -1_000_000
-  let lq = q.toLowerAscii
-  let lt = t.toLowerAscii
-  let pos = lt.find(lq)
-
-  ## fast helpers (no alloc)
-  proc withinOneEdit(a, b: string): bool =
-    let m = a.len; let n = b.len
-    if abs(m - n) > 1: return false
-    var i = 0; var j = 0; var edits = 0
-    while i < m and j < n:
-      if a[i] == b[j]: inc i; inc j
-      else:
-        inc edits; if edits > 1: return false
-        if m == n: inc i; inc j
-        elif m < n: inc j
-        else: inc i
-    edits += (m - i) + (n - j)
-    edits <= 1
-
-  proc withinOneTransposition(a, b: string): bool =
-    if a.len != b.len or a.len < 2: return false
-    var k = 0
-    while k < a.len and a[k] == b[k]: inc k
-    if k >= a.len - 1: return false
-    if not (a[k] == b[k+1] and a[k+1] == b[k]): return false
-    let tailStart = k + 2
-    result = if tailStart < a.len:
-      a[tailStart .. ^1] == b[tailStart .. ^1]
-    else:
-      true
-
-  var s = -1_000_000
-  if pos >= 0:
-    s = 1000
-    if pos == 0: s += 200
-    if isWordBoundary(lt, pos): s += 80
-    s += max(0, 60 - (t.len - q.len))
-
-  if t == q: s += 9000
-  elif lt == lq: s += 8600
-  elif lt.startsWith(lq): s += 8200
-  elif pos >= 0: s += 7800
-  else:
-    var typoHit = false
-
-    ## Whole-string typo tolerance (1 edit or adjacent swap).
-    if lq.len > 0 and (withinOneEdit(lq, lt) or withinOneTransposition(lq, lt)):
-      typoHit = true
-      s = max(s, 7600)
-
-    ## Substring typo tolerance to catch near-start matches.
-    if not typoHit and lq.len > 0:
-      let sizes = [max(1, lq.len - 1), lq.len, lq.len + 1]
-      for L in sizes:
-        if L > lt.len: continue
-        var start = 0
-        let maxStart = lt.len - L
-        while start <= maxStart:
-          let seg = lt[start ..< start + L]
-          if withinOneEdit(lq, seg) or withinOneTransposition(lq, seg):
-            typoHit = true
-            var base = 7700
-            if start == 0: base = 7950
-            s = max(s, base - min(120, start))
-            break
-          inc start
-        if typoHit: break
-
-  if fullPath.startsWith(home & "/"):
-    if lt == lq: s += 600
-    elif lt.startsWith(lq): s += 400
-  s
 
 type CmdKind* = enum
   ## Recognised input prefixes.
