@@ -3,7 +3,7 @@
 import std/[os]
 import ./[state, utils, paths]
 
-proc refreshConfigFiles*() =
+proc loadConfigFiles*() =
   ## Build the cached ~/.config file list once per run.
   configFilesCache.setLen(0)
   let base = userConfigHome()
@@ -16,10 +16,11 @@ proc refreshConfigFiles*() =
         exec: "xdg-open " & shellQuote(path),
         hasIcon: false
       )
+    configFilesLoaded = true
   except CatchableError as e:
-    echo "refreshConfigFiles warning: ", e.name, " ", e.msg
-  configFilesLoaded = true
+    configFilesLoaded = false
+    echo "loadConfigFiles warning: ", e.name, " ", e.msg
 
-proc ensureConfigFiles*() =
+proc ensureConfigFilesLoaded*() =
   if not configFilesLoaded:
-    refreshConfigFiles()
+    loadConfigFiles()

@@ -235,7 +235,7 @@ proc buildThemeActions(rest: string; defaultIndex: var int): seq[Action] =
 
 proc buildConfigActions(rest: string): seq[Action] =
   ## Build configuration file results under ~/.config.
-  ensureConfigFiles()
+  ensureConfigFilesLoaded()
   let ql = rest.toLowerAscii
   for entry in configFilesCache:
     if ql.len == 0 or entry.name.toLowerAscii.contains(ql):
@@ -490,7 +490,9 @@ proc performAction*(a: Action) =
       gui.notifyStatus("Failed: " & a.label, 1600)
       exitAfter = false
   of akFile:
-    discard openPathWithFallback(a.exec)
+    if not openPathWithFallback(a.exec):
+      gui.notifyStatus("Failed to open: " & a.label, 1600)
+      exitAfter = false
   of akApp:
     ## safer: strip .desktop field codes before launching
     let sanitized = parser.stripFieldCodes(a.exec).strip()

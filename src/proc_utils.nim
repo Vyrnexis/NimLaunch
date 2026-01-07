@@ -77,7 +77,7 @@ proc openPathWithFallback*(path: string): bool =
       discard startProcess("/usr/bin/env", args = @["xdg-open", resolved], options = {poDaemon})
       return true
     except CatchableError:
-      discard
+      echo "openPathWithFallback failed: ", resolved
   false
 
 proc chooseTerminal*(): string =
