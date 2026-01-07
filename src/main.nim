@@ -255,21 +255,17 @@ proc main() =
   if not ensureSingleInstance():
     echo "NimLaunch is already running."
     quit 0
-  benchMode = "--bench" in commandLineParams()
-
-  timeIt "Init Config:": initLauncherConfig()
-  timeIt "Load Applications:": loadApplications()
-  timeIt "Load Recent Apps:": loadRecent()
-  timeIt "Build Actions:": buildActions()
+  initLauncherConfig()
+  loadApplications()
+  loadRecent()
+  buildActions()
 
   resetVimState()
 
   gui.initGui()
-  timeIt "updateParsedColors:": updateParsedColors(config)
-  timeIt "updateGuiColors:": gui.updateGuiColors()
-  timeIt "Benchmark(Redraw Frame):": gui.redrawWindow()
-
-  if benchMode: quit 0
+  updateParsedColors(config)
+  gui.updateGuiColors()
+  gui.redrawWindow()
 
   var suppressNextTextInput = false
   var ev = defaultEvent

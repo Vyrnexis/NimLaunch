@@ -186,46 +186,44 @@ proc loadApplications*() =
         let c = to(node, CacheData)
         if c.formatVersion == CacheFormatVersion and
            c.appDirs == appDirs and c.dirMtimes == dirMtimes:
-          timeIt "Cache hit:":
-            allApps = c.apps
-            filteredApps = @[]
-            matchSpans = @[]
+          allApps = c.apps
+          filteredApps = @[]
+          matchSpans = @[]
           return
       else:
         echo "Cache invalid — rescanning …"
     except:
       echo "Cache miss — rescanning …"
 
-  timeIt "Full scan:":
-    var dedup = initTable[string, DesktopApp]()
-    for dir in appDirs:
-      if not dirExists(dir): continue
-      for path in walkDirRec(dir, yieldFilter = {pcFile}):
-        if not path.endsWith(".desktop"): continue
-        let opt = parseDesktopFile(path)
-        if isSome(opt):
-          let app = get(opt)
-          let sanitizedExec = parser.stripFieldCodes(app.exec).strip()
-          var key = sanitizedExec.toLowerAscii
-          if key.len == 0:
-            key = getBaseExec(app.exec).toLowerAscii
-          if key.len == 0:
-            key = app.name.toLowerAscii
-          if not dedup.hasKey(key) or (app.hasIcon and not dedup[key].hasIcon):
-            dedup[key] = app
+  var dedup = initTable[string, DesktopApp]()
+  for dir in appDirs:
+    if not dirExists(dir): continue
+    for path in walkDirRec(dir, yieldFilter = {pcFile}):
+      if not path.endsWith(".desktop"): continue
+      let opt = parseDesktopFile(path)
+      if isSome(opt):
+        let app = get(opt)
+        let sanitizedExec = parser.stripFieldCodes(app.exec).strip()
+        var key = sanitizedExec.toLowerAscii
+        if key.len == 0:
+          key = getBaseExec(app.exec).toLowerAscii
+        if key.len == 0:
+          key = app.name.toLowerAscii
+        if not dedup.hasKey(key) or (app.hasIcon and not dedup[key].hasIcon):
+          dedup[key] = app
 
-    allApps = dedup.values.toSeq
-    allApps.sort(proc(a, b: DesktopApp): int = cmpIgnoreCase(a.name, b.name))
-    filteredApps = @[]
-    matchSpans = @[]
-    try:
-      createDir(cacheBase)
-      writeFile(cacheFile, pretty(%CacheData(formatVersion: CacheFormatVersion,
-                                             appDirs: appDirs,
-                                             dirMtimes: dirMtimes,
-                                             apps: allApps)))
-    except CatchableError:
-      echo "Warning: cache not saved."
+  allApps = dedup.values.toSeq
+  allApps.sort(proc(a, b: DesktopApp): int = cmpIgnoreCase(a.name, b.name))
+  filteredApps = @[]
+  matchSpans = @[]
+  try:
+    createDir(cacheBase)
+    writeFile(cacheFile, pretty(%CacheData(formatVersion: CacheFormatVersion,
+                                           appDirs: appDirs,
+                                           dirMtimes: dirMtimes,
+                                           apps: allApps)))
+  except CatchableError:
+    echo "Warning: cache not saved."
 
 proc takePrefix(input, pfx: string; rest: var string): bool =
   ## Consume a command prefix and return the remainder (trimmed).

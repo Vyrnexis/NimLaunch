@@ -4,7 +4,7 @@
 ## Side effects:
 ##   • recent-application JSON persistence
 
-import std/[os, strutils, times, json, options]
+import std/[os, strutils, json, options]
 import ./[state, paths]
 
 # ── Shell helpers ───────────────────────────────────────────────────────
@@ -35,14 +35,6 @@ proc parseHexRgb8*(hex: string): Option[Rgb] =
     some(Rgb(r: uint8(r), g: uint8(g), b: uint8(b)))
   except:
     none(Rgb)
-
-# ── Timing helper (for --bench mode) ────────────────────────────────────
-template timeIt*(msg: string; body: untyped) =
-  let t0 = epochTime()
-  body
-  if benchMode:
-    let elapsed = (epochTime() - t0) * 1000.0
-    echo msg, " ", elapsed.formatFloat(ffDecimal, 3), " ms"
 
 # ── Recent/MRU (applications) persistence ───────────────────────────────
 let recentFile* = cacheDir() / "recent.json"

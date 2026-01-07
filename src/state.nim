@@ -128,7 +128,6 @@ var
   selectedIndex*: int               ## index into `filteredApps`
   viewOffset*: int                  ## first visible item row
   shouldExit*: bool
-  benchMode*: bool = false          ## `--bench` flag (minimal redraws)
   recentApps*: seq[string]          ## most-recent-first app names
   themeList*: seq[Theme]
   matchSpans*: seq[seq[(int, int)]] ## per row: (start,len) spans to highlight
