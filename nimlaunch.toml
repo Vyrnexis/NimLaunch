@@ -19,12 +19,12 @@ vertical_align = "one-third"      # Only used when center=true; "top", "center",
 fontname = "Dejavu:size=16"    # Font name & size (Xft format: "Font Family:size=N")
 
 [input]
-prompt = "> "                     # Prompt prefix shown before your query
-cursor = "_"                      # Cursor character displayed after query text
+prompt = " "                     # Prompt prefix shown before your query
+cursor = " "                     # Cursor character displayed after query text
 vim_mode = false                  # true enables Vim-style modes/hjkl navigation
 
 [terminal]
-program = "kitty  -e"        # Terminal emulator for slash commands (/ ...)
+program = "kitty  -e"             # Terminal emulator for slash commands (/ ...)
                                   # If not found, NimLaunch will fall back to a default
 
 [border]
