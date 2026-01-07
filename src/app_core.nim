@@ -295,8 +295,6 @@ proc buildSearchActions(rest: string): seq[Action] =
   var paths: seq[string]
   if lastSearchQuery.len > 0 and rest.len >= lastSearchQuery.len and
      rest.startsWith(lastSearchQuery) and lastSearchResults.len > 0:
-    ## Reuse cached results and rely on fuzzy scoring instead of substring filter,
-    ## so minor typos still surface.
     paths = lastSearchResults
   else:
     paths = scanFilesFast(rest)
