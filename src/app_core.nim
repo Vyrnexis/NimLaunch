@@ -1,6 +1,6 @@
 ## app_core.nim — port of NimLaunch logic (search, actions) for SDL2 UI.
 
-import std/[os, strutils, tables, uri, sets,
+import std/[os, strutils, tables, sets, uri,
             algorithm, heapqueue, exitprocs]
 when defined(posix):
   import posix

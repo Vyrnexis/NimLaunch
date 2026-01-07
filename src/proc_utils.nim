@@ -143,16 +143,22 @@ proc runCommand*(cmd: string) =
   var parts = tokenize(chooseTerminal()) # parser.tokenize on config.terminalExe/$TERMINAL
   if parts.len == 0:
     let (_, shArgs) = buildShellCommand(cmd, shExe)
-    discard startProcess(shExe, args = shArgs,
-                         options = {poDaemon, poParentStreams})
+    try:
+      discard startProcess(shExe, args = shArgs,
+                           options = {poDaemon, poParentStreams})
+    except CatchableError as e:
+      echo "runCommand failed: ", cmd, " (", e.name, "): ", e.msg
     return
 
   let exe = parts[0]
   let exePath = findExe(exe)
   if exePath.len == 0:
     let (_, shArgs) = buildShellCommand(cmd, shExe)
-    discard startProcess(shExe, args = shArgs,
-                         options = {poDaemon, poParentStreams})
+    try:
+      discard startProcess(shExe, args = shArgs,
+                           options = {poDaemon, poParentStreams})
+    except CatchableError as e:
+      echo "runCommand failed: ", cmd, " (", e.name, "): ", e.msg
     return
 
   var termArgs = if parts.len > 1: parts[1..^1] else: @[]
@@ -160,8 +166,11 @@ proc runCommand*(cmd: string) =
   let hold = hasHoldFlagLocal(termArgs)
   let (_, shArgs) = buildShellCommand(cmd, shExe, hold)
   let argv = buildTerminalArgs(base, termArgs, shExe, shArgs)
-  discard startProcess(exePath, args = argv,
-                       options = {poDaemon, poParentStreams})
+  try:
+    discard startProcess(exePath, args = argv,
+                         options = {poDaemon, poParentStreams})
+  except CatchableError as e:
+    echo "runCommand failed: ", cmd, " (", e.name, "): ", e.msg
 
 proc spawnShellCommand*(cmd: string): bool =
   ## Execute *cmd* via /bin/sh in the background; return success.
