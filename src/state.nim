@@ -125,6 +125,7 @@ var
   allApps*: seq[DesktopApp]
   filteredApps*: seq[DisplayRow]    ## full list & current view slice
   inputText*: string                ## raw user input
+  lastInputChangeMs*: int64         ## updated on each keystroke
   selectedIndex*: int               ## index into `filteredApps`
   viewOffset*: int                  ## first visible item row
   shouldExit*: bool

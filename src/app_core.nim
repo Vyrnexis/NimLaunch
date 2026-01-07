@@ -13,7 +13,6 @@ when defined(posix):
 # ── Module-local globals ────────────────────────────────────────────────
 var
   actions*: seq[Action]        ## transient list for the UI
-  lastInputChangeMs* = 0'i64   ## updated on each keystroke
 
 const
   iconAliases = {
@@ -132,12 +131,7 @@ else:
       discard
     true
 
-# ── Small searches: ~/.config helper ────────────────────────────────────
-proc ensureConfigFiles*() =
-  if not configFilesLoaded:
-    refreshConfigFiles()
-
-# ── Applications discovery (.desktop) ───────────────────────────────────
+# ── Command parsing / actions helpers ───────────────────────────────────
 type CmdKind* = enum
   ## Recognised input prefixes.
   ckNone,        # no special prefix
@@ -191,6 +185,7 @@ proc parseCommand*(inputText: string): (CmdKind, string, int) =
     return (ckRun, rest.strip(), -1)
   (ckNone, inputText, -1)
 
+# ── Applications discovery (.desktop) ───────────────────────────────────
 proc substituteQuery(pattern, value: string): string =
   ## Replace `{query}` placeholder or append value if absent.
   if pattern.contains("{query}"):
