@@ -4,7 +4,7 @@ import std/[os, strutils, tables, uri, sets,
             algorithm, heapqueue, exitprocs]
 when defined(posix):
   import posix
-import ./[state, parser, gui, utils, settings, paths, fuzzy, proc_utils, search, theme_session]
+import ./[state, parser, gui, utils, settings, paths, fuzzy, proc_utils, search, theme_session, config_actions]
 
 when defined(posix):
   when not declared(flock):
@@ -14,8 +14,6 @@ when defined(posix):
 var
   actions*: seq[Action]        ## transient list for the UI
   lastInputChangeMs* = 0'i64   ## updated on each keystroke
-  configFilesLoaded = false
-  configFilesCache: seq[DesktopApp] = @[]
 
 const
   iconAliases = {
@@ -135,28 +133,21 @@ else:
     true
 
 # ── Small searches: ~/.config helper ────────────────────────────────────
-proc refreshConfigFiles() =
-  ## Build the cached ~/.config file list once per run.
-  configFilesCache.setLen(0)
-  let base = userConfigHome()
-  try:
-    for path in walkDirRec(base, yieldFilter = {pcFile}):
-      let fn = path.extractFilename
-      if fn.len == 0: continue
-      configFilesCache.add DesktopApp(
-        name: fn,
-        exec: "xdg-open " & shellQuote(path),
-        hasIcon: false
-      )
-  except OSError:
-    discard
-  configFilesLoaded = true
-
-proc ensureConfigFiles() =
+proc ensureConfigFiles*() =
   if not configFilesLoaded:
     refreshConfigFiles()
 
 # ── Applications discovery (.desktop) ───────────────────────────────────
+type CmdKind* = enum
+  ## Recognised input prefixes.
+  ckNone,        # no special prefix
+  ckTheme,       # `t:`
+  ckConfig,      # `c:`
+  ckSearch,      # `s:` fast file search
+  ckPower,       # `p:` system/power actions
+  ckShortcut,    # custom shortcuts (e.g. :g, :wiki)
+  ckRun          # raw `r:` command
+
 proc takePrefix(input, pfx: string; rest: var string): bool =
   ## Consume a command prefix and return the remainder (trimmed).
   let n = pfx.len
@@ -168,16 +159,6 @@ proc takePrefix(input, pfx: string; rest: var string): bool =
         rest = input[n+1 .. ^1].strip(); return true
       rest = input[n .. ^1].strip(); return true
   false
-
-type CmdKind* = enum
-  ## Recognised input prefixes.
-  ckNone,        # no special prefix
-  ckTheme,       # `t:`
-  ckConfig,      # `c:`
-  ckSearch,      # `s:` fast file search
-  ckPower,       # `p:` system/power actions
-  ckShortcut,    # custom shortcuts (e.g. :g, :wiki)
-  ckRun          # raw `r:` command
 
 proc parseCommand*(inputText: string): (CmdKind, string, int) =
   ## Parse *inputText* and return the command kind, remainder, and shortcut index.

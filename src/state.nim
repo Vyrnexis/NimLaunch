@@ -133,6 +133,8 @@ var
   matchSpans*: seq[seq[(int, int)]] ## per row: (start,len) spans to highlight
   shortcuts*: seq[Shortcut]
   powerActions*: seq[PowerAction]
+  configFilesLoaded*: bool = false
+  configFilesCache*: seq[DesktopApp] = @[]
   vim*: VimCommandState
   themePreviewActive*: bool = false   ## true while :t list is temporarily previewing themes
   themePreviewBaseTheme*: string

@@ -55,7 +55,12 @@ proc applyThemeAndColors*(cfg: var Config; name: string; doNotify = true) =
 
 proc saveLastTheme*(cfgPath: string) =
   ## Update or insert [theme].last_chosen = "<name>" in the TOML file.
-  var lines = readFile(cfgPath).splitLines()
+  var lines: seq[string]
+  try:
+    lines = readFile(cfgPath).splitLines()
+  except CatchableError as e:
+    echo "saveLastTheme warning: unable to read ", cfgPath, " (", e.name, "): ", e.msg
+    return
   var inTheme = false
   var updated = false
   var themeSectionFound = false
@@ -85,7 +90,10 @@ proc saveLastTheme*(cfgPath: string) =
     lines.add("last_chosen = \"" & st.config.themeName & "\"")
     updated = true
   if updated:
-    writeFile(cfgPath, lines.join("\n"))
+    try:
+      writeFile(cfgPath, lines.join("\n"))
+    except CatchableError as e:
+      echo "saveLastTheme warning: unable to write ", cfgPath, " (", e.name, "): ", e.msg
 
 proc loadShortcutsSection(tbl: toml.TomlValueRef; cfgPath: string) =
   ## Populate `state.shortcuts` from `[[shortcuts]]` entries in *tbl*.
