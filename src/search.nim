@@ -7,6 +7,11 @@ const
   SearchFdCap*      = 800   # cap external search results from fd/locate
   SearchShowCap*    = 250   # cap items we score per rebuild
 
+var
+  lastSearchBuildMs* = 0'i64   ## idle-loop guard to rebuild after debounce
+  lastSearchQuery* = ""        ## cache key for s: queries
+  lastSearchResults*: seq[string] = @[] ## cached paths for narrowing queries
+
 proc shortenPath*(p: string; maxLen = 80): string =
   ## Replace $HOME with ~, and ellipsize the middle if too long.
   var s = p

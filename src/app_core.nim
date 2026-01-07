@@ -1,10 +1,10 @@
 ## app_core.nim — port of NimLaunch logic (search, actions) for SDL2 UI.
 
-import std/[os, strutils, options, tables, sequtils, json, uri, sets,
-            algorithm, times, heapqueue, exitprocs]
+import std/[os, strutils, tables, uri, sets,
+            algorithm, heapqueue, exitprocs]
 when defined(posix):
   import posix
-import ./[state, parser, gui, utils, settings, paths, fuzzy, proc_utils, search]
+import ./[state, parser, gui, utils, settings, paths, fuzzy, proc_utils, search, theme_session]
 
 when defined(posix):
   when not declared(flock):
@@ -14,14 +14,10 @@ when defined(posix):
 var
   actions*: seq[Action]        ## transient list for the UI
   lastInputChangeMs* = 0'i64   ## updated on each keystroke
-  lastSearchBuildMs* = 0'i64   ## idle-loop guard to rebuild after debounce
-  lastSearchQuery* = ""        ## cache key for s: queries
-  lastSearchResults*: seq[string] = @[] ## cached paths for narrowing queries
   configFilesLoaded = false
   configFilesCache: seq[DesktopApp] = @[]
 
 const
-  CacheFormatVersion = 4
   iconAliases = {
     "code": "visual-studio-code",
     "codium": "vscodium",
@@ -161,70 +157,6 @@ proc ensureConfigFiles() =
     refreshConfigFiles()
 
 # ── Applications discovery (.desktop) ───────────────────────────────────
-proc newestDesktopMtime(dir: string): int64 =
-  ## Return newest mtime among *.desktop files under *dir* (recursive).
-  if not dirExists(dir): return 0
-  var newest = 0'i64
-  for entry in walkDirRec(dir, yieldFilter = {pcFile}):
-    if entry.endsWith(".desktop"):
-      let m = times.toUnix(getLastModificationTime(entry))
-      if m > newest: newest = m
-  newest
-
-proc loadApplications*() =
-  ## Scan .desktop files with caching to ~/.cache/nimlaunch/apps.json.
-  let appDirs = applicationDirs()
-  let dirMtimes = appDirs.map(newestDesktopMtime)
-
-  let cacheBase = cacheDir()
-  let cacheFile = cacheBase / "apps.json"
-
-  if fileExists(cacheFile):
-    try:
-      let node = parseJson(readFile(cacheFile))
-      if node.kind == JObject and node.hasKey("formatVersion"):
-        let c = to(node, CacheData)
-        if c.formatVersion == CacheFormatVersion and
-           c.appDirs == appDirs and c.dirMtimes == dirMtimes:
-          allApps = c.apps
-          filteredApps = @[]
-          matchSpans = @[]
-          return
-      else:
-        echo "Cache invalid — rescanning …"
-    except:
-      echo "Cache miss — rescanning …"
-
-  var dedup = initTable[string, DesktopApp]()
-  for dir in appDirs:
-    if not dirExists(dir): continue
-    for path in walkDirRec(dir, yieldFilter = {pcFile}):
-      if not path.endsWith(".desktop"): continue
-      let opt = parseDesktopFile(path)
-      if isSome(opt):
-        let app = get(opt)
-        let sanitizedExec = parser.stripFieldCodes(app.exec).strip()
-        var key = sanitizedExec.toLowerAscii
-        if key.len == 0:
-          key = getBaseExec(app.exec).toLowerAscii
-        if key.len == 0:
-          key = app.name.toLowerAscii
-        if not dedup.hasKey(key) or (app.hasIcon and not dedup[key].hasIcon):
-          dedup[key] = app
-
-  allApps = dedup.values.toSeq
-  allApps.sort(proc(a, b: DesktopApp): int = cmpIgnoreCase(a.name, b.name))
-  filteredApps = @[]
-  matchSpans = @[]
-  try:
-    createDir(cacheBase)
-    writeFile(cacheFile, pretty(%CacheData(formatVersion: CacheFormatVersion,
-                                           appDirs: appDirs,
-                                           dirMtimes: dirMtimes,
-                                           apps: allApps)))
-  except CatchableError:
-    echo "Warning: cache not saved."
-
 proc takePrefix(input, pfx: string; rest: var string): bool =
   ## Consume a command prefix and return the remainder (trimmed).
   let n = pfx.len
@@ -277,45 +209,6 @@ proc parseCommand*(inputText: string): (CmdKind, string, int) =
   if takePrefix(inputText, "!", rest):
     return (ckRun, rest.strip(), -1)
   (ckNone, inputText, -1)
-
-proc beginThemePreviewSession() =
-  if not themePreviewActive:
-    themePreviewActive = true
-    themePreviewBaseTheme = config.themeName
-    themePreviewCurrent = config.themeName
-
-proc endThemePreviewSession*(persist: bool) =
-  if not themePreviewActive:
-    return
-  if persist:
-    themePreviewBaseTheme = config.themeName
-    themePreviewCurrent = config.themeName
-  else:
-    if themePreviewBaseTheme.len > 0 and themePreviewCurrent.len > 0 and
-       themePreviewCurrent != themePreviewBaseTheme:
-      applyThemeAndColors(config, themePreviewBaseTheme)
-      themePreviewCurrent = themePreviewBaseTheme
-  themePreviewActive = false
-
-proc updateThemePreview() =
-  let (cmd, _, _) = parseCommand(inputText)
-  if cmd != ckTheme:
-    return
-  if actions.len == 0:
-    endThemePreviewSession(false)
-    return
-  beginThemePreviewSession()
-  if selectedIndex < 0 or selectedIndex >= actions.len:
-    return
-  let act = actions[selectedIndex]
-  if act.kind != akTheme:
-    return
-  let name = act.exec
-  if themePreviewCurrent == name:
-    return
-  applyThemeAndColors(config, name)
-  themePreviewCurrent = name
-
 
 proc substituteQuery(pattern, value: string): string =
   ## Replace `{query}` placeholder or append value if absent.
@@ -569,7 +462,7 @@ proc updateDisplayRows(cmd: CmdKind; highlightQuery: string; defaultIndex: int) 
 
     if cmd == ckTheme:
       if actions.len > 0 and actions[selectedIndex].kind == akTheme:
-        updateThemePreview()
+        updateThemePreview(cmd == ckTheme, actions, selectedIndex)
       else:
         endThemePreviewSession(false)
     else:
@@ -697,104 +590,17 @@ proc moveSelectionBy*(step: int) =
   elif selectedIndex >= viewOffset + config.maxVisibleItems:
     viewOffset = selectedIndex - config.maxVisibleItems + 1
     if viewOffset < 0: viewOffset = 0
-  updateThemePreview()
+  updateThemePreview(parseCommand(inputText)[0] == ckTheme, actions, selectedIndex)
 
 proc jumpToTop*() =
   if filteredApps.len == 0: return
   selectedIndex = 0
   viewOffset = 0
-  updateThemePreview()
+  updateThemePreview(parseCommand(inputText)[0] == ckTheme, actions, selectedIndex)
 
 proc jumpToBottom*() =
   if filteredApps.len == 0: return
   selectedIndex = filteredApps.len - 1
   let start = filteredApps.len - config.maxVisibleItems
   viewOffset = if start > 0: start else: 0
-  updateThemePreview()
-
-proc resetVimState*() =
-  vim = VimCommandState()
-
-proc syncVimCommand*() =
-  inputText = vim.prefix & vim.buffer
-  lastInputChangeMs = gui.nowMs()
-  buildActions()
-
-proc openVimCommand*(initial: string = "") =
-  if not vim.active:
-    vim.savedInput = inputText
-    vim.savedSelectedIndex = selectedIndex
-    vim.savedViewOffset = viewOffset
-    vim.restorePending = true
-  if initial.len > 0 and (initial[0] == ':' or initial[0] == '!'):
-    vim.prefix = initial[0 .. 0]
-    if initial.len > 1:
-      vim.buffer = initial[1 .. ^1]
-    else:
-      vim.buffer.setLen(0)
-  else:
-    vim.prefix = ""
-    if initial.len == 0 and vim.lastSearch.len > 0:
-      vim.buffer = vim.lastSearch
-    else:
-      vim.buffer = initial
-  vim.active = true
-  vim.pendingG = false
-  syncVimCommand()
-
-proc closeVimCommand*(restoreInput = false; preserveBuffer = false) =
-  let savedInput = vim.savedInput
-  let savedSelected = vim.savedSelectedIndex
-  let savedOffset = vim.savedViewOffset
-  let savedBuffer = vim.prefix & vim.buffer
-  if savedBuffer.len == 0:
-    vim.lastSearch = ""
-  elif preserveBuffer and (savedBuffer[0] != ':' and savedBuffer[0] != '!'):
-    vim.lastSearch = savedBuffer
-  vim.buffer.setLen(0)
-  vim.prefix = ""
-  vim.active = false
-  vim.pendingG = false
-
-  if restoreInput and vim.restorePending:
-    inputText = savedInput
-    lastInputChangeMs = gui.nowMs()
-    buildActions()
-
-    if filteredApps.len > 0:
-      let clampedSel = max(0, min(savedSelected, filteredApps.len - 1))
-      let visibleRows = max(1, config.maxVisibleItems)
-      let maxOffset = max(0, filteredApps.len - visibleRows)
-      var newOffset = max(0, min(savedOffset, maxOffset))
-      if clampedSel < newOffset:
-        newOffset = clampedSel
-      elif clampedSel >= newOffset + visibleRows:
-        newOffset = max(0, clampedSel - visibleRows + 1)
-      selectedIndex = clampedSel
-      viewOffset = newOffset
-    else:
-      selectedIndex = 0
-      viewOffset = 0
-
-  vim.savedInput = ""
-  vim.savedSelectedIndex = 0
-  vim.savedViewOffset = 0
-  vim.restorePending = false
-
-
-
-proc executeVimCommand*() =
-  let trimmed = (vim.prefix & vim.buffer).strip()
-  closeVimCommand(preserveBuffer = false)
-  if trimmed.len == 0:
-    return
-  if trimmed == ":q":
-    shouldExit = true
-    return
-  inputText = trimmed
-  lastInputChangeMs = gui.nowMs()
-  buildActions()
-  if trimmed.len == 0 or (trimmed[0] != ':' and trimmed[0] != '!'):
-    vim.lastSearch = trimmed
-  if actions.len > 0:
-    activateCurrentSelection()
+  updateThemePreview(parseCommand(inputText)[0] == ckTheme, actions, selectedIndex)
