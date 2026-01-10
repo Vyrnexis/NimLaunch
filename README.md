@@ -2,14 +2,14 @@
 
 NimLaunch is a lightweight, keyboard-first launcher with fuzzy search, themes,
 shortcuts, power actions, and optional Vim mode. This build uses SDL2 for native
-Wayland/X11 support (no Xlib/Xft) with GPU-backed compositing for rendering.
+Wayland/X11 support (no Xlib/Xft) with GPU-backed compositing.
 
 ![NimLaunch screenshot](screenshots/NimLaunch-SDL2.gif)
 
 ## Features
 - Fuzzy app search with typo tolerance; MRU bias for empty query.
-- Prefix commands: `:t` themes, `:c` config files, `:s` file search, `:p` power
-  actions, `:r` shell run, `!` shorthand, custom shortcuts.
+- Prefix commands: `:t` themes, `:c` config files, `:s` file search, `:r` shell run,
+  `!` shorthand, and custom shortcut groups (default power alias `:p`).
 - Vim mode (optional): hjkl navigation, `/ : !` command bar, `gg/G`, `:q`, etc.
 - Themes with live preview; clock overlay; status/toast messages.
 - Icons from `.desktop` files (PNG/SVG) with a fallback alias map; icons can be
@@ -18,7 +18,7 @@ Wayland/X11 support (no Xlib/Xft) with GPU-backed compositing for rendering.
 
 ## Install
 Grab a compiled binary from the releases:
-https://github.com/Vyrnexis/NimLaunch/releases
+https://github.com/DrunkenAlcoholic/NimLaunch-SDL2/releases
 
 ## Build
 > [!NOTE]
@@ -53,12 +53,11 @@ sudo zypper install SDL2 SDL2_ttf SDL2_image-devel rsvg-convert dejavu-fonts
 
 ### Build
 ```bash
-git clone https://github.com/Vyrnexis/NimLaunch.git
-cd NimLaunch
+git clone https://github.com/DrunkenAlcoholic/NimLaunch-SDL2.git
+cd NimLaunch-SDL2
 ```
 
 ```bash
-# nimble tasks target src/main.nim
 nimble release   # or: nimble debug
 ```
 
@@ -106,27 +105,7 @@ core workflow:
 | `:c` | `:c sway` | Match files inside `~/.config` and open with the default handler |
 | `:r` | `:r htop` | Run a shell command inside your preferred terminal |
 | `!` | `!htop` | Shorthand for `:r` without the colon |
-| `:p` | `:p lock` | Show configured power/system actions (label filter) |
-
-`:s` results render as `filename — /path/to/dir` and open with the system
-handler. Power actions can either spawn in the background or run inside your
-configured terminal depending on their `mode`.
-
-### Vim mode
-Enable by setting `[input].vim_mode = true` in `~/.config/nimlaunch/nimlaunch.toml`.
-Vim mode adds:
-
-| Trigger | Effect |
-| ------- | ------ |
-| `h` / `j` / `k` / `l` | Move cursor left/down/up/right (acts on the result list) |
-| `gg` / `Shift+G` | Jump to top / bottom of the list |
-| `/` | Toggle the command bar; reopening restores the last slash search |
-| `:` / `!` | Open the command bar primed for colon or bang commands |
-| `Enter` | Launch the highlighted entry immediately |
-| `Esc` | Leave command mode but keep the current filtered results |
-| `:q` (then Enter) | Quit NimLaunch from the command bar |
-| `Ctrl+H` | Delete one character (when empty, closes the bar) |
-| `Ctrl+U` | Clear the entire command |
+| `:<group>` | `:p lock` | Run grouped shortcuts (e.g., `:p` for power) |
 
 ## Configuration
 The config lives at `~/.config/nimlaunch/nimlaunch.toml`. It is auto-generated on
@@ -159,6 +138,10 @@ width = 2
 [icons]
 enabled = true                    # Set to false to hide icons in the list
 
+[[groups]]
+name = "power"
+query_mode = "filter"
+
 [[shortcuts]]
 prefix = ":g"            # write "g", ":g", or "g:" — all map to :g in the UI
 label  = "Search Google: "
@@ -166,12 +149,14 @@ base   = "https://www.google.com/search?q={query}"
 mode   = "url"            # other options: "shell", "file"
 
 [power]
-prefix = ":p"            # write with or without ':'; the UI trigger remains :p
+prefix = ":p"            # default alias for the power group
 
-[[power_actions]]
-label   = "Shutdown"
-command = "systemctl poweroff"
-mode    = "spawn"         # or "terminal"
+[[shortcuts]]
+group     = "power"
+label     = "Shutdown"
+base      = "systemctl poweroff"
+mode      = "shell"
+run_mode  = "spawn"
 stay_open = false
 
 [[themes]]
@@ -191,46 +176,101 @@ last_chosen = "Nord"
 window toward the top, `center` centers it vertically, and `one-third` places it
 about 1/3 down the display.
 
-Shortcut and power prefixes are stored case-insensitively without leading/trailing
-colons, so feel free to write `g:`, `:g`, or just `g`. At runtime you still press
-`:` followed by the keyword (for example `:g search terms`).
+## Shortcuts (how they work)
+A shortcut is a template you trigger with `:`. The text you type after the
+prefix becomes `{query}`.
 
-### Custom shortcuts
-Add more `[[shortcuts]]` blocks:
+Example: typing `:g cats` uses the shortcut below and opens Google with "cats".
 
 ```toml
 [[shortcuts]]
-prefix = "yt:"
-label  = "Search YouTube: "
-base   = "https://www.youtube.com/results?search_query={query}"
-
-[[shortcuts]]
-prefix = "rg"
-label  = "grep repo: "
-base   = "cd ~/code && rg {query}"
-mode   = "shell"
-
-[[shortcuts]]
-prefix = ":note"
-label  = "Open note: "
-base   = "~/notes/{query}.md"
-mode   = "file"
+prefix = "g"
+label  = "Search Google: "
+base   = "https://www.google.com/search?q={query}"
+mode   = "url"
 ```
 
-`mode = "shell"` quotes the query for a shell command, while `mode = "file"`
-expands `~` and launches the path with your default handler. If the file is
-missing, NimLaunch stays open so you can adjust the query.
+Shortcut fields:
+- `prefix`: what you type after `:` (e.g., `g`, `note`, `rg`).
+- `label`: text shown in the results list.
+- `base`: template command/URL/path. Use `{query}` where the input should go.
+- `mode`:
+  - `url`: opens the URL in a browser (query is URL-encoded).
+  - `shell`: runs a shell command (query is safely quoted).
+  - `file`: opens a file or folder (expands `~`).
 
-### Power actions
-`[[power_actions]]` entries expose shutdown/reboot/lock/etc. commands behind a
-keyword (default `:p`). Each action supports:
+If `group` is set, the entry does not need a `prefix` because the group name
+becomes the prefix (e.g., `:dev`, `:sys`, `:p`).
 
-- `label` – text shown in the list.
-- `command` – shell command executed via `/bin/sh -c`.
-- `mode` – `spawn` (background) or `terminal` (run inside the configured terminal).
-- `stay_open` – keep NimLaunch open after execution.
+## Groups (powerful shortcuts)
+Groups let you collect shortcuts under a shared prefix like `:dev` or `:p`.
+Each group has a `query_mode`:
+- `filter`: your input filters the list by label (safe for power/system).
+- `pass`: your input is passed to each shortcut as `{query}` (great for search/dev).
 
-Set `[power].prefix = "x"` (or clear it) to change or disable the trigger.
+Filter example (menu-style):
+```toml
+[[groups]]
+name = "sys"
+query_mode = "filter"
+
+[[shortcuts]]
+group    = "sys"
+label    = "Lock"
+base     = "loginctl lock-session"
+mode     = "shell"
+run_mode = "spawn"
+
+[[shortcuts]]
+group    = "sys"
+label    = "Suspend"
+base     = "systemctl suspend"
+mode     = "shell"
+run_mode = "spawn"
+```
+
+Usage: `:sys` shows the list, `:sys su` narrows to Suspend.
+
+Pass-through example (multi-tool search):
+```toml
+[[groups]]
+name = "dev"
+query_mode = "pass"
+
+[[shortcuts]]
+group = "dev"
+label = "Issues: "
+base  = "gh issue list --search {query}"
+mode  = "shell"
+
+[[shortcuts]]
+group = "dev"
+label = "Docs: "
+base  = "https://docs.example.com/search?q={query}"
+mode  = "url"
+```
+
+Usage: `:dev crash` shows both results using \"crash\" as the query.
+
+### Power group
+The power menu is just a group named `power`. The `:p` prefix is an alias
+controlled by `[power].prefix`.
+
+## Vim mode
+Enable by setting `[input].vim_mode = true` in `~/.config/nimlaunch/nimlaunch.toml`.
+Vim mode adds:
+
+| Trigger | Effect |
+| ------- | ------ |
+| `h` / `j` / `k` / `l` | Move cursor left/down/up/right (acts on the result list) |
+| `gg` / `Shift+G` | Jump to top / bottom of the list |
+| `/` | Toggle the command bar; reopening restores the last slash search |
+| `:` / `!` | Open the command bar primed for colon or bang commands |
+| `Enter` | Launch the highlighted entry immediately |
+| `Esc` | Leave command mode but keep the current filtered results |
+| `:q` (then Enter) | Quit NimLaunch from the command bar |
+| `Ctrl+H` | Delete one character (when empty, closes the bar) |
+| `Ctrl+U` | Clear the entire command |
 
 ## File discovery & caching
 NimLaunch indexes `.desktop` files from:

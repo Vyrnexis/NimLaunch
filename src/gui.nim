@@ -527,7 +527,7 @@ proc drawStatusOverlay() =
 proc drawClock(topRight = false) =
   let nowStr = now().format("HH:mm")
   let (w, h) = measureText(st.fontOverlay, nowStr)
-  let cx = if topRight: config.winWidth - w - 10 else: config.winWidth - w - 10
+  let cx = config.winWidth - w - 10
   let cy = if topRight: h + 6 else: config.winMaxHeight - h - 8
   let tex = renderText(st.fontOverlay, nowStr, colFg)
   if tex.isNil: return

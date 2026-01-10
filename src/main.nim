@@ -3,7 +3,7 @@ import ./[state, app_core, gui, utils, settings, search, input, apps_cache, them
 
 proc processSearchDebounce(): bool =
   ## Debounce wake-up: if we're in s: search, rebuild after idle.
-  let (cmd, rest, _) = parseCommand(inputText)
+  let (cmd, rest, _, _) = parseCommand(inputText)
   if cmd != ckSearch:
     return false
   let now = gui.nowMs()

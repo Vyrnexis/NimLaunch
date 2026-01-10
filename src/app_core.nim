@@ -138,7 +138,7 @@ type CmdKind* = enum
   ckTheme,       # `t:`
   ckConfig,      # `c:`
   ckSearch,      # `s:` fast file search
-  ckPower,       # `p:` system/power actions
+  ckGroup,       # user-defined group prefix
   ckShortcut,    # custom shortcuts (e.g. :g, :wiki)
   ckRun          # raw `r:` command
 
@@ -154,8 +154,8 @@ proc takePrefix(input, pfx: string; rest: var string): bool =
       rest = input[n .. ^1].strip(); return true
   false
 
-proc parseCommand*(inputText: string): (CmdKind, string, int) =
-  ## Parse *inputText* and return the command kind, remainder, and shortcut index.
+proc parseCommand*(inputText: string): (CmdKind, string, int, string) =
+  ## Parse *inputText* and return the command kind, remainder, shortcut index, and group name.
   if inputText.len > 0 and inputText[0] == ':':
     var body = inputText[1 .. ^1]
     var rest = ""
@@ -168,22 +168,26 @@ proc parseCommand*(inputText: string): (CmdKind, string, int) =
       rest = ""
     let norm = normalizePrefix(keyword)
     case norm
-    of "s": return (ckSearch, rest, -1)
-    of "c": return (ckConfig, rest, -1)
-    of "t": return (ckTheme, rest, -1)
-    of "r": return (ckRun, rest, -1)
+    of "s": return (ckSearch, rest, -1, "")
+    of "c": return (ckConfig, rest, -1, "")
+    of "t": return (ckTheme, rest, -1, "")
+    of "r": return (ckRun, rest, -1, "")
     else:
       if config.powerPrefix.len > 0 and norm == config.powerPrefix:
-        return (ckPower, rest, -1)
+        return (ckGroup, rest, -1, "power")
       for i, sc in shortcuts:
+        if sc.prefix.len == 0:
+          continue
         if norm == sc.prefix:
-          return (ckShortcut, rest, i)
-      return (ckNone, inputText, -1)
+          return (ckShortcut, rest, i, "")
+      if groupQueryModes.hasKey(norm):
+        return (ckGroup, rest, -1, norm)
+      return (ckNone, inputText, -1, "")
 
   var rest: string
   if takePrefix(inputText, "!", rest):
-    return (ckRun, rest.strip(), -1)
-  (ckNone, inputText, -1)
+    return (ckRun, rest.strip(), -1, "")
+  (ckNone, inputText, -1, "")
 
 # ── Applications discovery (.desktop) ───────────────────────────────────
 proc substituteQuery(pattern, value: string): string =
@@ -252,23 +256,51 @@ proc buildShortcutActions(rest: string; shortcutIdx: int): seq[Action] =
            label: shortcutLabel(sc, rest),
            exec: shortcutExec(sc, rest),
            iconName: "",
-           shortcutMode: sc.mode)]
+           shortcutMode: sc.mode,
+           powerMode: sc.runMode,
+           stayOpen: sc.stayOpen)]
 
-proc buildPowerActions(rest: string): seq[Action] =
-  ## Build power/system actions filtered by label.
-  if powerActions.len == 0:
+proc groupQueryMode(name: string): GroupQueryMode =
+  if groupQueryModes.hasKey(name): groupQueryModes[name] else: gqmFilter
+
+proc buildGroupActions(groupName, rest: string): seq[Action] =
+  ## Build grouped actions. Query mode controls pass-through vs filter.
+  var entries: seq[Shortcut] = @[]
+  for sc in shortcuts:
+    if sc.group == groupName:
+      entries.add sc
+  if entries.len == 0:
     return @[Action(kind: akPlaceholder,
-                    label: "No power actions configured",
+                    label: "No actions in group",
                     exec: "")]
-  let ql = rest.strip().toLowerAscii
-  for pa in powerActions:
-    if ql.len == 0 or pa.label.toLowerAscii.contains(ql):
-      result.add Action(kind: akPower,
-                        label: pa.label,
-                        exec: pa.command,
+
+  if groupQueryMode(groupName) == gqmPass:
+    for sc in entries:
+      let label = shortcutLabel(sc, rest)
+      let exec = shortcutExec(sc, rest)
+      let safeLabel = if label.len > 0: label else: sc.base
+      result.add Action(kind: akShortcut,
+                        label: safeLabel,
+                        exec: exec,
                         iconName: "",
-                        powerMode: pa.mode,
-                        stayOpen: pa.stayOpen)
+                        shortcutMode: sc.mode,
+                        powerMode: sc.runMode,
+                        stayOpen: sc.stayOpen)
+    if result.len == 0:
+      result.add Action(kind: akPlaceholder, label: "No matches", exec: "")
+    return
+
+  let ql = rest.strip().toLowerAscii
+  for sc in entries:
+    let label = if sc.label.len > 0: sc.label else: sc.base
+    if ql.len == 0 or label.toLowerAscii.contains(ql):
+      result.add Action(kind: akShortcut,
+                        label: label,
+                        exec: shortcutExec(sc, ""),
+                        iconName: "",
+                        shortcutMode: sc.mode,
+                        powerMode: sc.runMode,
+                        stayOpen: sc.stayOpen)
   if result.len == 0:
     result.add Action(kind: akPlaceholder, label: "No matches", exec: "")
 
@@ -306,6 +338,11 @@ proc buildSearchActions(rest: string): seq[Action] =
     d
 
   let home = getHomeDir()
+  let homeDepth = block:
+    var d = 0
+    for ch in home:
+      if ch == '/': inc d
+    d
   var top = initHeapQueue[(int, string)]()
   let limit = config.maxVisibleItems
   let ql = restLower
@@ -322,7 +359,7 @@ proc buildSearchActions(rest: string): seq[Action] =
     if p.startsWith(home & "/"):
       s += 800
       let dir = p[0 ..< max(0, p.len - name.len)]
-      let relDepth = max(0, pathDepth(dir) - pathDepth(home))
+      let relDepth = max(0, pathDepth(dir) - homeDepth)
       s -= min(relDepth, 10) * 200
       if dir == home or dir == (home & "/"):
         s += 5_000
@@ -445,7 +482,7 @@ proc updateDisplayRows(cmd: CmdKind; highlightQuery: string; defaultIndex: int) 
 # ── Build actions & mirror to filteredApps ─────────────────────────────
 proc buildActions*() =
   ## Populate `actions` based on `inputText`; mirror to GUI lists/spans.
-  let (cmd, rest, shortcutIdx) = parseCommand(inputText)
+  let (cmd, rest, shortcutIdx, groupName) = parseCommand(inputText)
   var defaultIndex = 0
   var nextActions: seq[Action] = @[]
 
@@ -457,8 +494,8 @@ proc buildActions*() =
     nextActions = buildConfigActions(rest)
   of ckShortcut:
     nextActions = buildShortcutActions(rest, shortcutIdx)
-  of ckPower:
-    nextActions = buildPowerActions(rest)
+  of ckGroup:
+    nextActions = buildGroupActions(groupName, rest)
   of ckSearch:
     nextActions = buildSearchActions(rest)
   of ckRun:
@@ -510,7 +547,15 @@ proc performAction*(a: Action) =
     of smUrl:
       openUrl(a.exec)
     of smShell:
-      runCommand(a.exec)
+      var success = true
+      case a.powerMode
+      of pamSpawn:
+        success = spawnShellCommand(a.exec)
+      of pamTerminal:
+        runCommand(a.exec)
+      if not success:
+        gui.notifyStatus("Failed: " & a.label, 1600)
+        exitAfter = false
     of smFile:
       let expanded = a.exec.expandTilde()
       if not fileExists(expanded) and not dirExists(expanded):
@@ -519,6 +564,8 @@ proc performAction*(a: Action) =
       elif not openPathWithFallback(expanded):
         gui.notifyStatus("Failed to open: " & shortenPath(expanded, 50), 1600)
         exitAfter = false
+    if exitAfter and a.stayOpen:
+      exitAfter = false
   of akPower:
     var success = true
     case a.powerMode

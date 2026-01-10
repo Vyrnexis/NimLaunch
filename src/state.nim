@@ -1,7 +1,7 @@
 ## state.nim — SDL2 port of core data definitions & runtime state
 ## Derived from NimLaunch X11 version, adapted to remove X11 types.
 
-
+import std/tables
 # ── Data structures ─────────────────────────────────────────────────────
 type
   Rgb* = object
@@ -50,6 +50,14 @@ type
     bgColor*, fgColor*, highlightBgColor*, highlightFgColor*,
       borderColor*, matchFgColor*: Rgb
 
+  PowerActionMode* = enum
+    pamSpawn,    # execute via background shell
+    pamTerminal  # run inside configured terminal
+
+  GroupQueryMode* = enum
+    gqmFilter,   # group query filters entries by label
+    gqmPass      # group query passes through as {query}
+
   ShortcutMode* = enum
     smUrl,    # open base with URL-encoded query
     smShell,  # run base as a shell command
@@ -59,17 +67,9 @@ type
   Shortcut* = object
     prefix*, label*, base*: string
     mode*: ShortcutMode
-
-  PowerActionMode* = enum
-    pamSpawn,    # execute via background shell
-    pamTerminal  # run inside configured terminal
-
-  ## Configurable system/power action.
-  PowerAction* = object
-    label*: string
-    command*: string
-    mode*: PowerActionMode
-    stayOpen*: bool
+    group*: string               # optional group label (e.g., "power")
+    runMode*: PowerActionMode = pamTerminal
+    stayOpen*: bool = false
 
   ## What kind of thing the user can pick.
   ActionKind* = enum
@@ -90,7 +90,7 @@ type
     appData*: DesktopApp # optional for akApp; empty for other kinds
     iconName*: string
     shortcutMode*: ShortcutMode = smUrl
-    powerMode*: PowerActionMode = pamSpawn
+    powerMode*: PowerActionMode = pamTerminal
     stayOpen*: bool = false
 
   ## Lightweight row metadata for rendering the results list.
@@ -133,7 +133,7 @@ var
   themeList*: seq[Theme]
   matchSpans*: seq[seq[(int, int)]] ## per row: (start,len) spans to highlight
   shortcuts*: seq[Shortcut]
-  powerActions*: seq[PowerAction]
+  groupQueryModes*: Table[string, GroupQueryMode]
   configFilesLoaded*: bool = false
   configFilesCache*: seq[DesktopApp] = @[]
   vim*: VimCommandState
@@ -188,6 +188,16 @@ width = 2                         # Border thickness in pixels (0 = no border)
 enabled = true                    # Set to false to hide icons in the list
 
 # ==========================
+# Groups
+# ==========================
+# Define group names used by [[shortcuts]].
+# query_mode = "filter" (default) or "pass".
+
+[[groups]]
+name = "power"
+query_mode = "filter"
+
+# ==========================
 # Shortcuts
 # ==========================
 # Define custom prefix triggers. Each shortcut supports:
@@ -195,6 +205,9 @@ enabled = true                    # Set to false to hide icons in the list
 #   label   = text shown before your query in the results list
 #   base    = template containing optional {query} placeholder
 #   mode    = "url" (default), "shell", or "file"
+#   group   = optional group name (use "power" to list under :p)
+#   run_mode = "terminal" (default) or "spawn" for shell commands
+#   stay_open = true keeps NimLaunch open after running the action
 
 [[shortcuts]]
 prefix = ":g"
@@ -223,26 +236,34 @@ mode   = "url"
 # Power actions
 # ==========================
 # Configure system commands exposed under the `p` prefix (type `:p` in the UI).
-# `mode` accepts "spawn" (background) or "terminal" (runs inside
-# your configured terminal). `stay_open = true` keeps the launcher visible.
+# Power entries now live in [[shortcuts]] with group = "power".
 
 [power]
 prefix = ":p"           # Any prefix you write (with/without ':') maps to one trigger
 
-[[power_actions]]
-label   = "Shutdown"
-command = "systemctl poweroff"
-mode    = "spawn"
+[[shortcuts]]
+group     = "power"
+label     = "Shutdown"
+base      = "systemctl poweroff"
+mode      = "shell"
+run_mode  = "spawn"
+stay_open = false
 
-[[power_actions]]
-label   = "Reboot"
-command = "systemctl reboot"
-mode    = "spawn"
+[[shortcuts]]
+group     = "power"
+label     = "Reboot"
+base      = "systemctl reboot"
+mode      = "shell"
+run_mode  = "spawn"
+stay_open = false
 
-[[power_actions]]
-label       = "Logout"
-command     = "loginctl terminate-user $USER"
-mode        = "spawn"
+[[shortcuts]]
+group     = "power"
+label     = "Logout"
+base      = "loginctl terminate-user $USER"
+mode      = "shell"
+run_mode  = "spawn"
+stay_open = false
 
 # ==========================
 # Themes
