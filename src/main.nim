@@ -6,10 +6,11 @@ proc processSearchDebounce(): bool =
   let (cmd, rest, _) = parseCommand(inputText)
   if cmd != ckSearch:
     return false
-  let sinceEdit = gui.nowMs() - lastInputChangeMs
+  let now = gui.nowMs()
+  let sinceEdit = now - lastInputChangeMs
   if rest.len >= 2 and sinceEdit >= SearchDebounceMs and
      lastSearchBuildMs < lastInputChangeMs:
-    lastSearchBuildMs = gui.nowMs()
+    lastSearchBuildMs = now
     buildActions()
     return true
   false

@@ -117,6 +117,33 @@ proc resolveFontPath(name: string): string =
     discard
   DefaultFontPath
 
+proc computeAlignedWindowY(winHeight: int): cint =
+  ## Compute window Y for centerWindow + verticalAlign using display bounds.
+  var bounds: Rect
+  if getDisplayBounds(0, bounds) != SdlSuccess:
+    return SDL_WINDOWPOS_CENTERED
+
+  let displayTop = bounds.y.int
+  let displayH = bounds.h.int
+  if displayH <= 0:
+    return SDL_WINDOWPOS_CENTERED
+
+  let align = config.verticalAlign.toLowerAscii
+  var centerY: int
+  case align
+  of "top":
+    centerY = displayTop + winHeight div 2
+  of "center":
+    centerY = displayTop + displayH div 2
+  else:
+    centerY = displayTop + displayH div 3
+
+  var y = centerY - winHeight div 2
+  let maxY = displayTop + displayH - winHeight
+  if maxY >= displayTop:
+    y = max(displayTop, min(y, maxY))
+  y.cint
+
 proc ensureSdl() =
   if sdl2.wasInit(INIT_VIDEO) == 0'u32:
     if not sdl2.init(INIT_VIDEO):
@@ -168,7 +195,7 @@ proc initGui*() =
     window: createWindow(
       "NimLaunch2 SDL2".cstring,
       if config.centerWindow: SDL_WINDOWPOS_CENTERED else: cint(config.positionX),
-      if config.centerWindow: SDL_WINDOWPOS_CENTERED else: cint(config.positionY),
+      if config.centerWindow: computeAlignedWindowY(config.winMaxHeight) else: cint(config.positionY),
       cint(config.winWidth),
       cint(config.winMaxHeight),
       SDL_WINDOW_HIDDEN or SDL_WINDOW_BORDERLESS or SDL_WINDOW_SKIP_TASKBAR or SDL_WINDOW_UTILITY

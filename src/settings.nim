@@ -170,9 +170,9 @@ proc initLauncherConfig*() =
   st.config.maxVisibleItems = 10
   st.config.centerWindow = true
   st.config.positionX = 20
-  st.config.positionY = 50
+  st.config.positionY = 500
   st.config.verticalAlign = "one-third"
-  st.config.fontName = "DejaVu Sans:size=12"
+  st.config.fontName = "Dejavu:size=16"
   st.config.prompt = "> "
   st.config.cursor = "_"
   st.config.opacity = 1.0
@@ -192,7 +192,12 @@ proc initLauncherConfig*() =
     echo "Created default config at ", cfgPath
 
   ## Parse TOML
-  let tbl = toml.parseFile(cfgPath)
+  var tbl: toml.TomlValueRef
+  try:
+    tbl = toml.parseFile(cfgPath)
+  except CatchableError as e:
+    echo "NimLaunch warning: invalid TOML in ", cfgPath, " (", e.name, "): ", e.msg
+    tbl = toml.parseString(defaultToml)
 
   ## window
   if tbl.hasKey("window"):
@@ -300,6 +305,8 @@ proc initLauncherConfig*() =
   ## guard rails for config values that affect layout/search limits
   if st.config.maxVisibleItems < 1:
     st.config.maxVisibleItems = 1
+  if st.config.borderWidth < 0:
+    st.config.borderWidth = 0
   st.config.opacity = clamp(st.config.opacity, 0.1, 1.0)
 
   ## derived geometry
