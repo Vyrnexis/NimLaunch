@@ -327,5 +327,21 @@ proc handleTextInput*(ev: Event; focus: var FocusState; suppressNextTextInput: v
     return false
   let s = $cast[cstring](addr ev.text.text[0])
   focus.hadFocus = true
+  if config.vimMode and not vim.active and s.len > 0:
+    case s[0]
+    of '/':
+      vim.pendingG = false
+      openVimCommand("")
+      return true
+    of ':':
+      vim.pendingG = false
+      openVimCommand(":")
+      return true
+    of '!':
+      vim.pendingG = false
+      openVimCommand("!")
+      return true
+    else:
+      discard
   appendTextInput(s)
   true
