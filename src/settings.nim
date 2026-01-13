@@ -204,6 +204,7 @@ proc initLauncherConfig*() =
   st.config.matchFgColorHex = "#f8c291"
   st.config.powerPrefix = normalizePrefix("p:")
   st.config.vimMode = false
+  st.config.debugInput = false
   st.config.showIcons = true
 
   ## Ensure TOML exists
@@ -261,6 +262,14 @@ proc initLauncherConfig*() =
       st.config.terminalExe = term.getOrDefault("program").getStr(st.config.terminalExe)
     except CatchableError:
       echo "NimLaunch warning: ignoring invalid [terminal] section in ", cfgPath
+
+  ## debug
+  if tbl.hasKey("debug"):
+    try:
+      let dbg = tbl["debug"].getTable()
+      st.config.debugInput = dbg.getOrDefault("input").getBool(st.config.debugInput)
+    except CatchableError:
+      echo "NimLaunch warning: ignoring invalid [debug] section in ", cfgPath
 
   ## border
   if tbl.hasKey("border"):

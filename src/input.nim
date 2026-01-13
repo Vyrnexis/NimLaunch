@@ -270,6 +270,8 @@ proc handleKeyDown*(ev: Event; focus: var FocusState; suppressNextTextInput: var
   if code >= 32 and code <= 126:
     text = $(chr(code))
   focus.hadFocus = true
+  if config.debugInput:
+    echo "[input] keydown sym=", sym, " mod=", modState, " text='", text, "' vim=", $config.vimMode, " active=", $vim.active
 
   if config.vimMode:
     handleVimKey(sym, text, modState, suppressNextTextInput)
@@ -327,6 +329,8 @@ proc handleTextInput*(ev: Event; focus: var FocusState; suppressNextTextInput: v
     return false
   let s = $cast[cstring](addr ev.text.text[0])
   focus.hadFocus = true
+  if config.debugInput:
+    echo "[input] text='", s, "' vim=", $config.vimMode, " active=", $vim.active
   if config.vimMode and not vim.active and s.len > 0:
     case s[0]
     of '/':

@@ -45,6 +45,7 @@ type
     terminalExe*: string     ## preferred terminal program
     powerPrefix*: string     ## normalized power keyword (no leading ':')
     vimMode*: bool
+    debugInput*: bool
 
     # Resolved colours (set after theme application) --------------------
     bgColor*, fgColor*, highlightBgColor*, highlightFgColor*,
@@ -180,6 +181,9 @@ vim_mode = false                  # true enables Vim-style modes/hjkl navigation
 [terminal]
 program = "gnome-terminal"        # Terminal emulator for slash commands (/ ...)
                                   # If not found, NimLaunch will fall back to a default
+
+[debug]
+input = false                     # Log key/input events to stdout
 
 [border]
 width = 2                         # Border thickness in pixels (0 = no border)

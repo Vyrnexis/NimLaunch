@@ -16,26 +16,21 @@ requires "parsetoml"
 
 
 # Build tasks
-task release, "Build the application with release flags":
-  mkDir("bin")
-  exec "nim c -d:release -d:danger --passL:'-s' --opt:size -o:./bin/nimlaunch src/main.nim"
 
-task zigit, "Build the application with Zig compiler":
+# Native Nim builds
+task nimRelease, "Release build with native compiler":
   mkDir("bin")
-  exec "nim c -d:release --cc:clang --clang.exe='./zigcc' --clang.linkerexe='./zigcc' --passL:'-s' -o:./bin/nimlaunch ./src/main.nim"
-  
-task fast, "Build with speed optimizations (safer than danger), Using CachyOS v4 gcc":
-  mkDir("bin")
-  exec "nim c -d:release --opt:speed -o:./bin/nimlaunch src/main.nim"
+  exec "nim c -d:release -d:danger --passC:'-ffunction-sections -fdata-sections' --passL:'-Wl,--gc-sections -s' --opt:size -o:./bin/nimlaunch src/main.nim"
 
-# Custom task to format all source files
-task pretty, "Format all Nim files in src/ directory":
-  exec "find src/ -name '*.nim' -exec nimpretty {} \\;"
-
-task debug, "Build the application in debug mode":
+task nimDebug, "Debug build with native compiler":
   mkDir("bin")
   exec "nim c -o:./bin/nimlaunch src/main.nim"
 
-task clear, "Clean build artifacts":
-  rmFile("bin/nimlaunch")
-  rmFile("nimlaunch")  # In case it's left in root
+# Zig-based builds (portable)
+task zigRelease, "Release build with Zig compiler (portable)":
+  mkDir("bin")
+  exec "nim c -d:release --cc:clang --clang.exe='./zigcc' --clang.linkerexe='./zigcc' --passC:'-target x86_64-linux-gnu -mcpu=x86_64 -ffunction-sections -fdata-sections' --passL:'-target x86_64-linux-gnu -mcpu=x86_64 -Wl,--gc-sections -s' -o:./bin/nimlaunch ./src/main.nim"
+
+task zigDebug, "Debug build with Zig compiler":
+  mkDir("bin")
+  exec "nim c --cc:clang --clang.exe='./zigcc' --clang.linkerexe='./zigcc' -o:./bin/nimlaunch ./src/main.nim"

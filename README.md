@@ -61,6 +61,12 @@ cd NimLaunch-SDL2
 nimble release   # or: nimble debug
 ```
 
+For a more portable build (e.g., to run on other distros), use:
+
+```bash
+nimble zigit
+```
+
 or
 
 ```bash
