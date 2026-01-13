@@ -211,9 +211,12 @@ proc initLauncherConfig*() =
   let cfgDir = configDir()
   let cfgPath = cfgDir / "nimlaunch.toml"
   if not fileExists(cfgPath):
-    createDir(cfgDir)
-    writeFile(cfgPath, defaultToml)
-    echo "Created default config at ", cfgPath
+    try:
+      createDir(cfgDir)
+      writeFile(cfgPath, defaultToml)
+      echo "Created default config at ", cfgPath
+    except CatchableError as e:
+      echo "NimLaunch warning: unable to write default config at ", cfgPath, " (", e.name, "): ", e.msg
 
   ## Parse TOML
   var tbl: toml.TomlValueRef

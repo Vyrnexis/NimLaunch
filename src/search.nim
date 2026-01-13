@@ -1,16 +1,38 @@
 ## search.nim — file search helpers and shared constants.
 
-import std/[os, strutils, osproc, streams]
+import std/[os, strutils, osproc, streams, tables]
 
 const
   SearchDebounceMs* = 240   # debounce for s: while typing (unified)
   SearchFdCap*      = 800   # cap external search results from fd/locate
   SearchShowCap*    = 250   # cap items we score per rebuild
+  SearchCacheMax*   = 6     # keep a small cache of recent queries
 
 var
   lastSearchBuildMs* = 0'i64   ## idle-loop guard to rebuild after debounce
   lastSearchQuery* = ""        ## cache key for s: queries
   lastSearchResults*: seq[string] = @[] ## cached paths for narrowing queries
+  searchCache*: OrderedTable[string, seq[string]] = initOrderedTable[string, seq[string]]()
+
+proc cacheSearchResults*(query: string; results: seq[string]) =
+  if query.len == 0:
+    return
+  if searchCache.hasKey(query):
+    searchCache.del(query)
+  searchCache[query] = results
+  if searchCache.len > SearchCacheMax:
+    var oldestKey = ""
+    for key in searchCache.keys:
+      oldestKey = key
+      break
+    if oldestKey.len > 0:
+      searchCache.del(oldestKey)
+
+proc getCachedSearchResults*(query: string; results: var seq[string]): bool =
+  if searchCache.hasKey(query):
+    results = searchCache[query]
+    return true
+  false
 
 proc shortenPath*(p: string; maxLen = 80): string =
   ## Replace $HOME with ~, and ellipsize the middle if too long.

@@ -310,6 +310,34 @@ proc buildRunActions(rest: string): seq[Action] =
     return @[Action(kind: akPlaceholder, label: "Run: enter a command", exec: "")]
   @[Action(kind: akRun, label: "Run: " & rest, exec: rest, iconName: "")]
 
+proc pathDepth(path: string): int =
+  for ch in path:
+    if ch == '/':
+      inc result
+
+proc scoreSearchCandidate(query: string; queryLower: string; fileName: string;
+                          path: string; homeDir: string; homeDepth: int): int =
+  var score = scoreMatch(query, fileName, path, homeDir)
+  let fileLower = fileName.toLowerAscii
+  if fileLower == queryLower:
+    score += 12_000
+  elif fileLower.startsWith(queryLower):
+    score += 4_000
+
+  if path.startsWith(homeDir & "/"):
+    score += 800
+    let directory = path[0 ..< max(0, path.len - fileName.len)]
+    let relativeDepth = max(0, pathDepth(directory) - homeDepth)
+    score -= min(relativeDepth, 10) * 200
+    if directory == homeDir or directory == (homeDir & "/"):
+      score += 5_000
+      if fileName.len > 0 and fileName[0] == '.':
+        score += 4_000
+  else:
+    score -= 2_000
+
+  score
+
 proc buildSearchActions(rest: string): seq[Action] =
   ## File search via :s — respects debounce and reuses cached results.
   let sinceEdit = gui.nowMs() - lastInputChangeMs
@@ -323,67 +351,51 @@ proc buildSearchActions(rest: string): seq[Action] =
   if lastSearchQuery.len > 0 and rest.len >= lastSearchQuery.len and
      rest.startsWith(lastSearchQuery) and lastSearchResults.len > 0:
     paths = lastSearchResults
+  elif getCachedSearchResults(rest, paths):
+    discard
   else:
     paths = scanFilesFast(rest)
+    cacheSearchResults(rest, paths)
 
   lastSearchQuery = rest
   lastSearchResults = paths
 
   let maxScore = min(paths.len, SearchShowCap)
 
-  proc pathDepth(s: string): int =
-    var d = 0
-    for ch in s:
-      if ch == '/': inc d
-    d
-
-  let home = getHomeDir()
+  let homeDir = getHomeDir()
   let homeDepth = block:
-    var d = 0
-    for ch in home:
-      if ch == '/': inc d
-    d
-  var top = initHeapQueue[(int, string)]()
+    var depth = 0
+    for ch in homeDir:
+      if ch == '/':
+        inc depth
+    depth
+  var topScores = initHeapQueue[(int, string)]()
   let limit = config.maxVisibleItems
-  let ql = restLower
+  let queryLower = restLower
 
   for idx in 0 ..< maxScore:
-    let p = paths[idx]
-    let name = p.extractFilename
-    var s = scoreMatch(rest, name, p, home)
+    let path = paths[idx]
+    let fileName = path.extractFilename
+    let score = scoreSearchCandidate(rest, queryLower, fileName, path, homeDir, homeDepth)
 
-    let nl = name.toLowerAscii
-    if nl == ql: s += 12_000
-    elif nl.startsWith(ql): s += 4_000
-
-    if p.startsWith(home & "/"):
-      s += 800
-      let dir = p[0 ..< max(0, p.len - name.len)]
-      let relDepth = max(0, pathDepth(dir) - homeDepth)
-      s -= min(relDepth, 10) * 200
-      if dir == home or dir == (home & "/"):
-        s += 5_000
-        if name.len > 0 and name[0] == '.': s += 4_000
-    else:
-      s -= 2_000
-
-    if s > -1_000_000:
-      push(top, (s, p))
-      if top.len > max(limit, 200): discard pop(top)
+    if score > -1_000_000:
+      push(topScores, (score, path))
+      if topScores.len > max(limit, 200): discard pop(topScores)
 
   var ranked: seq[(int, string)] = @[]
-  while top.len > 0: ranked.add pop(top)
+  while topScores.len > 0: ranked.add pop(topScores)
   ranked.sort(proc(a, b: (int, string)): int = cmp(b[0], a[0]))
 
   let showCap = max(limit, min(40, SearchShowCap))
   for i, it in ranked:
     if i >= showCap: break
-    let p = it[1]
-    let name = p.extractFilename
-    var dir = p[0 ..< max(0, p.len - name.len)]
-    while dir.len > 0 and dir[^1] == '/': dir.setLen(dir.len - 1)
-    let pretty = name & " — " & shortenPath(dir)
-    result.add Action(kind: akFile, label: pretty, exec: p, iconName: "")
+    let path = it[1]
+    let fileName = path.extractFilename
+    var directory = path[0 ..< max(0, path.len - fileName.len)]
+    while directory.len > 0 and directory[^1] == '/':
+      directory.setLen(directory.len - 1)
+    let pretty = fileName & " — " & shortenPath(directory)
+    result.add Action(kind: akFile, label: pretty, exec: path, iconName: "")
 
   if result.len == 0:
     result.add Action(kind: akPlaceholder, label: "No matches", exec: "")

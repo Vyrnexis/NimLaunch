@@ -34,6 +34,7 @@ type
     fontBold: FontPtr
     fontOverlay: FontPtr
     iconCache: Table[string, IconTexture]
+    iconPathCache: Table[string, string]
     windowShown: bool
     windowRaised: bool
 
@@ -159,6 +160,7 @@ proc destroyState() =
     if not tex.isNil and not tex.tex.isNil:
       tex.tex.destroy()
   st.iconCache.clear()
+  st.iconPathCache.clear()
   if not st.font.isNil: st.font.close()
   if not st.fontBold.isNil: st.fontBold.close()
   if not st.fontOverlay.isNil: st.fontOverlay.close()
@@ -218,6 +220,7 @@ proc initGui*() =
   st.fontBold = loadFont(fontPath, size, makeBold = true)
   st.fontOverlay = loadFont(fontPath, max(size - 2, 6))
   st.iconCache = initTable[string, IconTexture]()
+  st.iconPathCache = initTable[string, string]()
 
   when declared(setWindowOpacity):
     let opac = if config.opacity < 0.1: 0.1 elif config.opacity > 1.0: 1.0 else: config.opacity
@@ -390,7 +393,13 @@ proc getIconTexture(iconName: string; size: int): IconTexture =
   if st.iconCache.hasKey(cacheKey):
     return st.iconCache[cacheKey]
 
-  let path = resolveIconPath(iconName, size)
+  var path = ""
+  if st.iconPathCache.hasKey(cacheKey):
+    path = st.iconPathCache[cacheKey]
+  else:
+    path = resolveIconPath(iconName, size)
+    st.iconPathCache[cacheKey] = path
+
   if path.len == 0:
     return nil
 
