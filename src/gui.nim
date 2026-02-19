@@ -118,10 +118,27 @@ proc resolveFontPath(name: string): string =
     discard
   DefaultFontPath
 
-proc computeAlignedWindowY(winHeight: int): cint =
+proc computeAlignedWindowX(winWidth: int; displayIndex: int): cint =
+  ## Compute window X for centerWindow using display bounds.
+  var bounds: Rect
+  if getDisplayBounds(displayIndex.cint, bounds) != SdlSuccess:
+    return SDL_WINDOWPOS_CENTERED
+
+  let displayLeft = bounds.x.int
+  let displayW = bounds.w.int
+  if displayW <= 0:
+    return SDL_WINDOWPOS_CENTERED
+
+  var x = displayLeft + (displayW - winWidth) div 2
+  let maxX = displayLeft + displayW - winWidth
+  if maxX >= displayLeft:
+    x = max(displayLeft, min(x, maxX))
+  x.cint
+
+proc computeAlignedWindowY(winHeight: int; displayIndex: int): cint =
   ## Compute window Y for centerWindow + verticalAlign using display bounds.
   var bounds: Rect
-  if getDisplayBounds(0, bounds) != SdlSuccess:
+  if getDisplayBounds(displayIndex.cint, bounds) != SdlSuccess:
     return SDL_WINDOWPOS_CENTERED
 
   let displayTop = bounds.y.int
@@ -196,8 +213,8 @@ proc initGui*() =
   st = BackendState(
     window: createWindow(
       "NimLaunch2 SDL2".cstring,
-      if config.centerWindow: SDL_WINDOWPOS_CENTERED else: cint(config.positionX),
-      if config.centerWindow: computeAlignedWindowY(config.winMaxHeight) else: cint(config.positionY),
+      if config.centerWindow: computeAlignedWindowX(config.winWidth, config.displayIndex) else: cint(config.positionX),
+      if config.centerWindow: computeAlignedWindowY(config.winMaxHeight, config.displayIndex) else: cint(config.positionY),
       cint(config.winWidth),
       cint(config.winMaxHeight),
       SDL_WINDOW_HIDDEN or SDL_WINDOW_BORDERLESS or SDL_WINDOW_SKIP_TASKBAR or SDL_WINDOW_UTILITY

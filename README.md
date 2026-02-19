@@ -126,6 +126,7 @@ center = true
 position_x = 20
 position_y = 500
 vertical_align = "one-third"
+display = 0
 
 [font]
 fontname = "Noto Sans:size=12"
@@ -181,6 +182,8 @@ last_chosen = "Nord"
 `vertical_align` only affects the Y position when `center = true`: `top` pins the
 window toward the top, `center` centers it vertically, and `one-third` places it
 about 1/3 down the display.
+
+`display` selects which monitor to use when `center = true` (0 = primary, 1 = second, etc.).
 
 ## Shortcuts (how they work)
 A shortcut is a template you trigger with `:`. The text you type after the

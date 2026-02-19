@@ -29,6 +29,7 @@ type
     centerWindow*: bool
     positionX*, positionY*: int
     verticalAlign*: string   ## "top" | "center" | "one-third"
+    displayIndex*: int       ## display index for centered positioning
 
     # Colours as hex strings (resolved to SDL colours later) -------------
     bgColorHex*, fgColorHex*: string
@@ -169,6 +170,7 @@ center = true                     # true: center window horizontally; false: use
 position_x = 20                   # X position in pixels when center=false
 position_y = 500                  # Y position in pixels when center=false
 vertical_align = "one-third"      # Only used when center=true; "top", "center", or "one-third"
+display = 0                       # Display index when center=true (0 = primary)
 
 [font]
 fontname = "Dejavu:size=16"       # Font name & size (e.g., "Font Family:size=N")

@@ -195,6 +195,7 @@ proc initLauncherConfig*() =
   st.config.positionX = 20
   st.config.positionY = 500
   st.config.verticalAlign = "one-third"
+  st.config.displayIndex = 0
   st.config.fontName = "Dejavu:size=16"
   st.config.prompt = "> "
   st.config.cursor = "_"
@@ -236,6 +237,7 @@ proc initLauncherConfig*() =
       st.config.positionX = w.getOrDefault("position_x").getInt(st.config.positionX)
       st.config.positionY = w.getOrDefault("position_y").getInt(st.config.positionY)
       st.config.verticalAlign = w.getOrDefault("vertical_align").getStr(st.config.verticalAlign)
+      st.config.displayIndex = w.getOrDefault("display").getInt(st.config.displayIndex)
       st.config.opacity = w.getOrDefault("opacity").getFloat(st.config.opacity)
     except CatchableError:
       echo "NimLaunch warning: ignoring invalid [window] section in ", cfgPath
@@ -344,6 +346,8 @@ proc initLauncherConfig*() =
     st.config.maxVisibleItems = 1
   if st.config.borderWidth < 0:
     st.config.borderWidth = 0
+  if st.config.displayIndex < 0:
+    st.config.displayIndex = 0
   st.config.opacity = clamp(st.config.opacity, 0.1, 1.0)
 
   ## derived geometry
