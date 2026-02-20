@@ -54,17 +54,17 @@ sudo zypper install SDL2 SDL2_ttf SDL2_image-devel rsvg-convert dejavu-fonts
 ### Build
 ```bash
 git clone https://github.com/Vyrnexis/NimLaunch.git
-cd NimLaunch-SDL2
+cd NimLaunch
 ```
 
 ```bash
-nimble release   # or: nimble debug
+nimble nimRelease   # or: nimble nimDebug
 ```
 
 For a more portable build (e.g., to run on other distros), use:
 
 ```bash
-nimble zigit
+nimble zigRelease # or: nimble zigDebug
 ```
 
 or
