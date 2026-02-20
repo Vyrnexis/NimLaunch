@@ -18,7 +18,7 @@ Wayland/X11 support (no Xlib/Xft) with GPU-backed compositing.
 
 ## Install
 Grab a compiled binary from the releases:
-https://github.com/DrunkenAlcoholic/NimLaunch-SDL2/releases
+https://github.com/Vyrnexis/NimLaunch/releases
 
 ## Build
 > [!NOTE]
@@ -53,7 +53,7 @@ sudo zypper install SDL2 SDL2_ttf SDL2_image-devel rsvg-convert dejavu-fonts
 
 ### Build
 ```bash
-git clone https://github.com/Vyrnexis/NimLaunch-SDL2.git
+git clone https://github.com/Vyrnexis/NimLaunch.git
 cd NimLaunch-SDL2
 ```
 
