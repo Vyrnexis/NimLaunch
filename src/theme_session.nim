@@ -21,7 +21,8 @@ proc endThemePreviewSession*(persist: bool) =
       themePreviewCurrent = themePreviewBaseTheme
   themePreviewActive = false
 
-proc updateThemePreview*(isThemeCmd: bool; actions: seq[Action]; selectedIndex: int) =
+proc updateThemePreview*(isThemeCmd: bool; actions: seq[Action];
+    selectedIndex: int) =
   if not isThemeCmd:
     return
   if actions.len == 0:

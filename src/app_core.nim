@@ -4,15 +4,17 @@ import std/[os, strutils, tables, sets, uri,
             algorithm, heapqueue, exitprocs]
 when defined(posix):
   import posix
-import ./[state, parser, gui, utils, settings, paths, fuzzy, proc_utils, search, theme_session, config_actions]
+import ./[state, parser, gui, utils, settings, paths, fuzzy, proc_utils, search,
+    theme_session, config_actions]
 
 when defined(posix):
   when not declared(flock):
-    proc flock(fd: cint; operation: cint): cint {.importc, header: "<sys/file.h>".}
+    proc flock(fd: cint; operation: cint): cint {.importc,
+        header: "<sys/file.h>".}
 
 # ── Module-local globals ────────────────────────────────────────────────
 var
-  actions*: seq[Action]        ## transient list for the UI
+  actions*: seq[Action] ## transient list for the UI
 
 const
   iconAliases = {
@@ -134,13 +136,13 @@ else:
 # ── Command parsing / actions helpers ───────────────────────────────────
 type CmdKind* = enum
   ## Recognised input prefixes.
-  ckNone,        # no special prefix
-  ckTheme,       # `t:`
-  ckConfig,      # `c:`
-  ckSearch,      # `s:` fast file search
-  ckGroup,       # user-defined group prefix
-  ckShortcut,    # custom shortcuts (e.g. :g, :wiki)
-  ckRun          # raw `r:` command
+  ckNone,     # no special prefix
+  ckTheme,    # `t:`
+  ckConfig,   # `c:`
+  ckSearch,   # `s:` fast file search
+  ckGroup,    # user-defined group prefix
+  ckShortcut, # custom shortcuts (e.g. :g, :wiki)
+  ckRun       # raw `r:` command
 
 proc takePrefix(input, pfx: string; rest: var string): bool =
   ## Consume a command prefix and return the remainder (trimmed).
@@ -275,6 +277,8 @@ proc buildGroupActions(groupName, rest: string): seq[Action] =
                     exec: "")]
 
   if groupQueryMode(groupName) == gqmPass:
+    if rest.len == 0:
+      return @[Action(kind: akPlaceholder, label: "Enter a query", exec: "")]
     for sc in entries:
       let label = shortcutLabel(sc, rest)
       let exec = shortcutExec(sc, rest)
@@ -413,13 +417,15 @@ proc buildDefaultActions(rest: string; defaultIndex: var int): seq[Action] =
       if index.hasKey(name):
         let app = index[name]
         let iconName = if config.showIcons: pickIcon(app) else: ""
-        result.add Action(kind: akApp, label: app.name, exec: app.exec, appData: app, iconName: iconName)
+        result.add Action(kind: akApp, label: app.name, exec: app.exec,
+            appData: app, iconName: iconName)
         seen.incl name
 
     for app in allApps:
       if not seen.contains(app.name):
         let iconName = if config.showIcons: pickIcon(app) else: ""
-        result.add Action(kind: akApp, label: app.name, exec: app.exec, appData: app, iconName: iconName)
+        result.add Action(kind: akApp, label: app.name, exec: app.exec,
+            appData: app, iconName: iconName)
   else:
     var top = initHeapQueue[(int, int)]()
     let limit = config.maxVisibleItems
@@ -437,12 +443,14 @@ proc buildDefaultActions(rest: string; defaultIndex: var int): seq[Action] =
     for item in ranked:
       let app = allApps[item[1]]
       let iconName = if config.showIcons: pickIcon(app) else: ""
-      result.add Action(kind: akApp, label: app.name, exec: app.exec, appData: app, iconName: iconName)
+      result.add Action(kind: akApp, label: app.name, exec: app.exec,
+          appData: app, iconName: iconName)
 
   if result.len == 0:
     result.add Action(kind: akPlaceholder, label: "No applications found", exec: "")
 
-proc updateDisplayRows(cmd: CmdKind; highlightQuery: string; defaultIndex: int) =
+proc updateDisplayRows(cmd: CmdKind; highlightQuery: string;
+    defaultIndex: int) =
   ## Sync state.filteredApps/matchSpans and maintain selection/preview state.
   filteredApps.setLen(0)
   matchSpans.setLen(0)

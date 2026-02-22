@@ -24,7 +24,7 @@ type
   Config* = object
     # Window geometry ----------------------------------------------------
     winWidth*, winMaxHeight*: int
-    opacity*: float            ## 0.1 - 1.0 window opacity (SDL window)
+    opacity*: float          ## 0.1 - 1.0 window opacity (SDL window)
     lineHeight*, maxVisibleItems*: int
     centerWindow*: bool
     positionX*, positionY*: int
@@ -46,42 +46,41 @@ type
     terminalExe*: string     ## preferred terminal program
     powerPrefix*: string     ## normalized power keyword (no leading ':')
     vimMode*: bool
-    debugInput*: bool
 
     # Resolved colours (set after theme application) --------------------
     bgColor*, fgColor*, highlightBgColor*, highlightFgColor*,
       borderColor*, matchFgColor*: Rgb
 
   PowerActionMode* = enum
-    pamSpawn,    # execute via background shell
-    pamTerminal  # run inside configured terminal
+    pamSpawn,   # execute via background shell
+    pamTerminal # run inside configured terminal
 
   GroupQueryMode* = enum
-    gqmFilter,   # group query filters entries by label
-    gqmPass      # group query passes through as {query}
+    gqmFilter, # group query filters entries by label
+    gqmPass    # group query passes through as {query}
 
   ShortcutMode* = enum
-    smUrl,    # open base with URL-encoded query
-    smShell,  # run base as a shell command
-    smFile    # treat base as a filesystem path
+    smUrl,   # open base with URL-encoded query
+    smShell, # run base as a shell command
+    smFile   # treat base as a filesystem path
 
   ## User-configurable prefix shortcut.
   Shortcut* = object
     prefix*, label*, base*: string
     mode*: ShortcutMode
-    group*: string               # optional group label (e.g., "power")
+    group*: string # optional group label (e.g., "power")
     runMode*: PowerActionMode = pamTerminal
     stayOpen*: bool = false
 
   ## What kind of thing the user can pick.
   ActionKind* = enum
-    akApp,       # a real .desktop application
-    akRun,       # a `:r` shell command
-    akConfig,    # `:c` file under ~/.config
-    akFile,      # `:s` file search (open with default app)
-    akShortcut,  # configurable shortcut (URL/shell/file)
-    akTheme,     # `:t` Theme selector
-    akPower,     # power/system management entries
+    akApp,      # a real .desktop application
+    akRun,      # a `:r` shell command
+    akConfig,   # `:c` file under ~/.config
+    akFile,     # `:s` file search (open with default app)
+    akShortcut, # configurable shortcut (URL/shell/file)
+    akTheme,    # `:t` Theme selector
+    akPower,    # power/system management entries
     akPlaceholder
 
   ## A single selectable entry in the launcher.
@@ -139,7 +138,7 @@ var
   configFilesLoaded*: bool = false
   configFilesCache*: seq[DesktopApp] = @[]
   vim*: VimCommandState
-  themePreviewActive*: bool = false   ## true while :t list is temporarily previewing themes
+  themePreviewActive*: bool = false ## true while :t list is temporarily previewing themes
   themePreviewBaseTheme*: string
   themePreviewCurrent*: string
 
@@ -183,9 +182,6 @@ vim_mode = false                  # true enables Vim-style modes/hjkl navigation
 [terminal]
 program = "gnome-terminal"        # Terminal emulator for slash commands (/ ...)
                                   # If not found, NimLaunch will fall back to a default
-
-[debug]
-input = false                     # Log key/input events to stdout
 
 [border]
 width = 2                         # Border thickness in pixels (0 = no border)

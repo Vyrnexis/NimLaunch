@@ -5,7 +5,7 @@ import parsetoml as toml
 import ./[state as st, gui, utils, paths]
 
 var
-  baseMatchFgColorHex = ""     ## default fallback for match highlight colour
+  baseMatchFgColorHex = "" ## default fallback for match highlight colour
 
 proc applyTheme*(cfg: var Config; name: string) =
   ## Set theme fields from `themeList` by name; respect explicit match color.
@@ -35,7 +35,8 @@ proc updateParsedColors*(cfg: var Config) =
   let hfg = parseHexRgb8(cfg.highlightFgColorHex)
   let border = parseHexRgb8(cfg.borderColorHex)
   let match = parseHexRgb8(cfg.matchFgColorHex)
-  if isNone(bg) or isNone(fg) or isNone(hbg) or isNone(hfg) or isNone(border) or isNone(match):
+  if isNone(bg) or isNone(fg) or isNone(hbg) or isNone(hfg) or isNone(border) or
+      isNone(match):
     quit "Invalid colour in theme configuration"
   cfg.bgColor = get(bg)
   cfg.fgColor = get(fg)
@@ -93,7 +94,8 @@ proc saveLastTheme*(cfgPath: string) =
     try:
       writeFile(cfgPath, lines.join("\n"))
     except CatchableError as e:
-      echo "saveLastTheme warning: unable to write ", cfgPath, " (", e.name, "): ", e.msg
+      echo "saveLastTheme warning: unable to write ", cfgPath, " (", e.name,
+          "): ", e.msg
 
 proc loadShortcutsSection(tbl: toml.TomlValueRef; cfgPath: string) =
   ## Populate `state.shortcuts` from `[[shortcuts]]` entries in *tbl*.
@@ -106,7 +108,8 @@ proc loadShortcutsSection(tbl: toml.TomlValueRef; cfgPath: string) =
       let prefixRaw = scTbl.getOrDefault("prefix").getStr("")
       var prefix = normalizePrefix(prefixRaw)
       let base = scTbl.getOrDefault("base").getStr("").strip()
-      let label = scTbl.getOrDefault("label").getStr("").strip(chars = {'\t', '\r', '\n'})
+      let label = scTbl.getOrDefault("label").getStr("").strip(chars = {'\t',
+          '\r', '\n'})
       let modeStr = scTbl.getOrDefault("mode").getStr("url").toLowerAscii
       let group = scTbl.getOrDefault("group").getStr("").strip().toLowerAscii
       let runModeStr = scTbl.getOrDefault("run_mode").getStr("").strip().toLowerAscii
@@ -205,7 +208,6 @@ proc initLauncherConfig*() =
   st.config.matchFgColorHex = "#f8c291"
   st.config.powerPrefix = normalizePrefix("p:")
   st.config.vimMode = false
-  st.config.debugInput = false
   st.config.showIcons = true
 
   ## Ensure TOML exists
@@ -217,7 +219,8 @@ proc initLauncherConfig*() =
       writeFile(cfgPath, defaultToml)
       echo "Created default config at ", cfgPath
     except CatchableError as e:
-      echo "NimLaunch warning: unable to write default config at ", cfgPath, " (", e.name, "): ", e.msg
+      echo "NimLaunch warning: unable to write default config at ", cfgPath,
+          " (", e.name, "): ", e.msg
 
   ## Parse TOML
   var tbl: toml.TomlValueRef
@@ -232,12 +235,18 @@ proc initLauncherConfig*() =
     try:
       let w = tbl["window"].getTable()
       st.config.winWidth = w.getOrDefault("width").getInt(st.config.winWidth)
-      st.config.maxVisibleItems = w.getOrDefault("max_visible_items").getInt(st.config.maxVisibleItems)
-      st.config.centerWindow = w.getOrDefault("center").getBool(st.config.centerWindow)
-      st.config.positionX = w.getOrDefault("position_x").getInt(st.config.positionX)
-      st.config.positionY = w.getOrDefault("position_y").getInt(st.config.positionY)
-      st.config.verticalAlign = w.getOrDefault("vertical_align").getStr(st.config.verticalAlign)
-      st.config.displayIndex = w.getOrDefault("display").getInt(st.config.displayIndex)
+      st.config.maxVisibleItems = w.getOrDefault("max_visible_items").getInt(
+          st.config.maxVisibleItems)
+      st.config.centerWindow = w.getOrDefault("center").getBool(
+          st.config.centerWindow)
+      st.config.positionX = w.getOrDefault("position_x").getInt(
+          st.config.positionX)
+      st.config.positionY = w.getOrDefault("position_y").getInt(
+          st.config.positionY)
+      st.config.verticalAlign = w.getOrDefault("vertical_align").getStr(
+          st.config.verticalAlign)
+      st.config.displayIndex = w.getOrDefault("display").getInt(
+          st.config.displayIndex)
       st.config.opacity = w.getOrDefault("opacity").getFloat(st.config.opacity)
     except CatchableError:
       echo "NimLaunch warning: ignoring invalid [window] section in ", cfgPath
@@ -256,7 +265,8 @@ proc initLauncherConfig*() =
       let inp = tbl["input"].getTable()
       st.config.prompt = inp.getOrDefault("prompt").getStr(st.config.prompt)
       st.config.cursor = inp.getOrDefault("cursor").getStr(st.config.cursor)
-      st.config.vimMode = inp.getOrDefault("vim_mode").getBool(st.config.vimMode)
+      st.config.vimMode = inp.getOrDefault("vim_mode").getBool(
+          st.config.vimMode)
     except CatchableError:
       echo "NimLaunch warning: ignoring invalid [input] section in ", cfgPath
 
@@ -264,23 +274,18 @@ proc initLauncherConfig*() =
   if tbl.hasKey("terminal"):
     try:
       let term = tbl["terminal"].getTable()
-      st.config.terminalExe = term.getOrDefault("program").getStr(st.config.terminalExe)
+      st.config.terminalExe = term.getOrDefault("program").getStr(
+          st.config.terminalExe)
     except CatchableError:
       echo "NimLaunch warning: ignoring invalid [terminal] section in ", cfgPath
 
-  ## debug
-  if tbl.hasKey("debug"):
-    try:
-      let dbg = tbl["debug"].getTable()
-      st.config.debugInput = dbg.getOrDefault("input").getBool(st.config.debugInput)
-    except CatchableError:
-      echo "NimLaunch warning: ignoring invalid [debug] section in ", cfgPath
 
   ## border
   if tbl.hasKey("border"):
     try:
       let b = tbl["border"].getTable()
-      st.config.borderWidth = b.getOrDefault("width").getInt(st.config.borderWidth)
+      st.config.borderWidth = b.getOrDefault("width").getInt(
+          st.config.borderWidth)
     except CatchableError:
       echo "NimLaunch warning: ignoring invalid [border] section in ", cfgPath
 
@@ -288,7 +293,8 @@ proc initLauncherConfig*() =
   if tbl.hasKey("icons"):
     try:
       let ic = tbl["icons"].getTable()
-      st.config.showIcons = ic.getOrDefault("enabled").getBool(st.config.showIcons)
+      st.config.showIcons = ic.getOrDefault("enabled").getBool(
+          st.config.showIcons)
     except CatchableError:
       echo "NimLaunch warning: ignoring invalid [icons] section in ", cfgPath
 
@@ -302,8 +308,10 @@ proc initLauncherConfig*() =
           name: th.getOrDefault("name").getStr(""),
           bgColorHex: th.getOrDefault("bgColorHex").getStr(""),
           fgColorHex: th.getOrDefault("fgColorHex").getStr(""),
-          highlightBgColorHex: th.getOrDefault("highlightBgColorHex").getStr(""),
-          highlightFgColorHex: th.getOrDefault("highlightFgColorHex").getStr(""),
+          highlightBgColorHex: th.getOrDefault("highlightBgColorHex").getStr(
+              ""),
+          highlightFgColorHex: th.getOrDefault("highlightFgColorHex").getStr(
+              ""),
           borderColorHex: th.getOrDefault("borderColorHex").getStr(""),
           matchFgColorHex: th.getOrDefault("matchFgColorHex").getStr("")
         )

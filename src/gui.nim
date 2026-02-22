@@ -8,7 +8,8 @@ import sdl2/image
 import ./[state, paths]
 
 when not declared(setWindowOpacity):
-  proc setWindowOpacity(window: WindowPtr; opacity: cfloat): cint {.cdecl, importc: "SDL_SetWindowOpacity", dynlib: LibName.}
+  proc setWindowOpacity(window: WindowPtr; opacity: cfloat): cint {.cdecl,
+      importc: "SDL_SetWindowOpacity", dynlib: LibName.}
 
 when not declared(SDL_WINDOW_SKIP_TASKBAR):
   const SDL_WINDOW_SKIP_TASKBAR* = 0x00010000'u32
@@ -17,10 +18,12 @@ when not declared(SDL_WINDOW_UTILITY):
   const SDL_WINDOW_UTILITY* = 0x00020000'u32
 
 when not declared(setWindowAlwaysOnTop):
-  proc setWindowAlwaysOnTop(window: WindowPtr; on: cint): cint {.cdecl, importc: "SDL_SetWindowAlwaysOnTop", dynlib: LibName.}
+  proc setWindowAlwaysOnTop(window: WindowPtr; on: cint): cint {.cdecl,
+      importc: "SDL_SetWindowAlwaysOnTop", dynlib: LibName.}
 
 when not declared(raiseWindow):
-  proc raiseWindow(window: WindowPtr) {.cdecl, importc: "SDL_RaiseWindow", dynlib: LibName.}
+  proc raiseWindow(window: WindowPtr) {.cdecl, importc: "SDL_RaiseWindow",
+      dynlib: LibName.}
 
 type
   IconTexture = ref object
@@ -118,10 +121,19 @@ proc resolveFontPath(name: string): string =
     discard
   DefaultFontPath
 
+proc clampDisplayIndex(displayIndex: int): int =
+  let count = getNumVideoDisplays().int
+  if count <= 0:
+    return 0
+  if displayIndex < 0: return 0
+  if displayIndex >= count: return count - 1
+  displayIndex
+
 proc computeAlignedWindowX(winWidth: int; displayIndex: int): cint =
   ## Compute window X for centerWindow using display bounds.
+  let idx = clampDisplayIndex(displayIndex)
   var bounds: Rect
-  if getDisplayBounds(displayIndex.cint, bounds) != SdlSuccess:
+  if getDisplayBounds(idx.cint, bounds) != SdlSuccess:
     return SDL_WINDOWPOS_CENTERED
 
   let displayLeft = bounds.x.int
@@ -137,8 +149,9 @@ proc computeAlignedWindowX(winWidth: int; displayIndex: int): cint =
 
 proc computeAlignedWindowY(winHeight: int; displayIndex: int): cint =
   ## Compute window Y for centerWindow + verticalAlign using display bounds.
+  let idx = clampDisplayIndex(displayIndex)
   var bounds: Rect
-  if getDisplayBounds(displayIndex.cint, bounds) != SdlSuccess:
+  if getDisplayBounds(idx.cint, bounds) != SdlSuccess:
     return SDL_WINDOWPOS_CENTERED
 
   let displayTop = bounds.y.int
@@ -213,8 +226,10 @@ proc initGui*() =
   st = BackendState(
     window: createWindow(
       "NimLaunch2 SDL2".cstring,
-      if config.centerWindow: computeAlignedWindowX(config.winWidth, config.displayIndex) else: cint(config.positionX),
-      if config.centerWindow: computeAlignedWindowY(config.winMaxHeight, config.displayIndex) else: cint(config.positionY),
+      if config.centerWindow: computeAlignedWindowX(config.winWidth,
+          config.displayIndex) else: cint(config.positionX),
+      if config.centerWindow: computeAlignedWindowY(config.winMaxHeight,
+          config.displayIndex) else: cint(config.positionY),
       cint(config.winWidth),
       cint(config.winMaxHeight),
       SDL_WINDOW_HIDDEN or SDL_WINDOW_BORDERLESS or SDL_WINDOW_SKIP_TASKBAR or SDL_WINDOW_UTILITY
@@ -240,7 +255,8 @@ proc initGui*() =
   st.iconPathCache = initTable[string, string]()
 
   when declared(setWindowOpacity):
-    let opac = if config.opacity < 0.1: 0.1 elif config.opacity > 1.0: 1.0 else: config.opacity
+    let opac = if config.opacity < 0.1: 0.1 elif config.opacity >
+        1.0: 1.0 else: config.opacity
     discard setWindowOpacity(st.window, opac.cfloat)
 
   startTextInput()
@@ -464,7 +480,8 @@ proc drawIconAt(slotX, y: int; slotSize: int; iconName: string): int =
 # -------------------
 # Drawing
 # -------------------
-proc drawText(x, y: int; text: string; spans: seq[(int, int)] = @[]; selected = false; iconName = "") =
+proc drawText(x, y: int; text: string; spans: seq[(int, int)] = @[];
+    selected = false; iconName = "") =
   if st.isNil or st.renderer.isNil: return
   let baseColor = if selected: colHighlightFg else: colFg
   let bg = if selected: colHighlightBg else: colBg
@@ -607,7 +624,8 @@ proc drawCommandBar() =
   barRect.y = barTop.cint
   barRect.w = config.winWidth.cint
   barRect.h = barHeight.cint
-  discard st.renderer.setDrawColor(colHighlightBg.r, colHighlightBg.g, colHighlightBg.b, 255'u8)
+  discard st.renderer.setDrawColor(colHighlightBg.r, colHighlightBg.g,
+      colHighlightBg.b, 255'u8)
   discard st.renderer.fillRect(addr barRect)
   var textX = 12
   if vim.prefix.len > 0:

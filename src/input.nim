@@ -25,7 +25,8 @@ proc shouldExitOnFocusLoss*(fs: FocusState): bool =
   let postGain = (now - fs.lastGainMs) > 150
   fs.hadFocus and armed and postGain
 
-proc handleVimCommandKey*(sym: cint; ctrlHeld: bool; suppressText: var bool): bool =
+proc handleVimCommandKey*(sym: cint; ctrlHeld: bool;
+    suppressText: var bool): bool =
   ## Handle Vim command-line keys. Return true if the key was consumed.
   case sym
   of K_RETURN:
@@ -62,7 +63,8 @@ proc handleVimCommandKey*(sym: cint; ctrlHeld: bool; suppressText: var bool): bo
     ## Printable characters are handled by TextInput; do not block.
     false
 
-proc openVimCommandForTrigger*(text: string; shiftHeld: bool; suppressText: var bool): bool =
+proc openVimCommandForTrigger*(text: string; shiftHeld: bool;
+    suppressText: var bool): bool =
   ## Open the Vim command bar for '/', ':' or '!'. Return true if consumed.
   if text.len == 0:
     return false
@@ -79,7 +81,8 @@ proc openVimCommandForTrigger*(text: string; shiftHeld: bool; suppressText: var 
   suppressText = true
   true
 
-proc handleVimNormalKey*(sym: cint; text: string; modState: int16; suppressText: var bool): bool =
+proc handleVimNormalKey*(sym: cint; text: string; modState: int16;
+    suppressText: var bool): bool =
   ## Handle Vim-mode nav/open keys when not in command-line. Return true if consumed.
   let shiftHeld = (modState and ShiftMask) != 0
   ## Directly detect slash/colon/bang on keycodes so non-US layouts and numpad divide work.
@@ -149,7 +152,8 @@ proc handleVimNormalKey*(sym: cint; text: string; modState: int16; suppressText:
     vim.pendingG = false
     false
 
-proc handleVimKey*(sym: cint; text: string; modState: int16; suppressText: var bool) =
+proc handleVimKey*(sym: cint; text: string; modState: int16;
+    suppressText: var bool) =
   if vim.active:
     discard handleVimCommandKey(sym, (modState and CtrlMask) != 0, suppressText)
   else:
@@ -261,7 +265,8 @@ proc handleWindowEvent*(ev: Event; focus: var FocusState) =
   else:
     discard
 
-proc handleKeyDown*(ev: Event; focus: var FocusState; suppressNextTextInput: var bool): bool =
+proc handleKeyDown*(ev: Event; focus: var FocusState;
+    suppressNextTextInput: var bool): bool =
   let sym = ev.key.keysym.sym
   let modState = ev.key.keysym.modstate
   var handled = false
@@ -270,9 +275,6 @@ proc handleKeyDown*(ev: Event; focus: var FocusState; suppressNextTextInput: var
   if code >= 32 and code <= 126:
     text = $(chr(code))
   focus.hadFocus = true
-  if config.debugInput:
-    echo "[input] keydown sym=", sym, " mod=", modState, " text='", text, "' vim=", $config.vimMode, " active=", $vim.active
-
   if config.vimMode:
     handleVimKey(sym, text, modState, suppressNextTextInput)
     handled = suppressNextTextInput
@@ -323,14 +325,13 @@ proc handleKeyDown*(ev: Event; focus: var FocusState; suppressNextTextInput: var
 
   handled
 
-proc handleTextInput*(ev: Event; focus: var FocusState; suppressNextTextInput: var bool): bool =
+proc handleTextInput*(ev: Event; focus: var FocusState;
+    suppressNextTextInput: var bool): bool =
   if suppressNextTextInput:
     suppressNextTextInput = false
     return false
   let s = $cast[cstring](addr ev.text.text[0])
   focus.hadFocus = true
-  if config.debugInput:
-    echo "[input] text='", s, "' vim=", $config.vimMode, " active=", $vim.active
   if config.vimMode and not vim.active and s.len > 0:
     case s[0]
     of '/':

@@ -14,7 +14,8 @@ proc tryStart(candidates: seq[(string, seq[string])]): bool =
   for (exe, args) in candidates:
     if exe.len == 0: continue
     try:
-      discard startProcess(exe, args = args, options = {poDaemon, poParentStreams})
+      discard startProcess(exe, args = args, options = {poDaemon,
+          poParentStreams})
       return true
     except CatchableError:
       discard
@@ -74,7 +75,8 @@ proc openPathWithFallback*(path: string): bool =
   if openPathWithDefault(resolved): return true
   if dirExists(resolved) or fileExists(resolved):
     try:
-      discard startProcess("/usr/bin/env", args = @["xdg-open", resolved], options = {poDaemon})
+      discard startProcess("/usr/bin/env", args = @["xdg-open", resolved],
+          options = {poDaemon})
       return true
     except CatchableError:
       echo "openPathWithFallback failed: ", resolved
@@ -94,7 +96,7 @@ proc chooseTerminal*(): string =
   for t in fallbackTerms:
     if whichExists(t):
       return t
-  ""  # headless
+  "" # headless
 
 proc hasHoldFlagLocal*(args: seq[string]): bool =
   ## Detect common "keep window open" flags passed to terminals.
@@ -127,7 +129,7 @@ proc buildTerminalArgs*(base: string; termArgs: seq[string]; shExe: string;
   argv
 
 proc buildShellCommand*(cmd, shExe: string; hold = false):
-    tuple[fullCmd: string, shArgs: seq[string]] =
+    tuple[fullCmd: string; shArgs: seq[string]] =
   ## Run user's command in a group, and add a robust hold prompt when needed.
   ## Grouping prevents suffix binding to pipelines/conditionals.
   let suffix = (if hold: "" else: "; printf '\\n[Press Enter to close]\\n'; read -r _")

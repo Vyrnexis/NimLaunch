@@ -12,14 +12,16 @@ proc userConfigHome*(): string =
   ## Return XDG config home (respects $XDG_CONFIG_HOME).
   let fromEnv = getEnv("XDG_CONFIG_HOME")
   if fromEnv.len > 0:
-    return fromEnv.strip(chars = {DirSep, AltSep}, leading = false, trailing = true)
+    return fromEnv.strip(chars = {DirSep, AltSep}, leading = false,
+        trailing = true)
   getHomeDir() / DefaultXdgConfigHome
 
 proc userCacheHome*(): string =
   ## Return XDG cache home (respects $XDG_CACHE_HOME).
   let fromEnv = getEnv("XDG_CACHE_HOME")
   if fromEnv.len > 0:
-    return fromEnv.strip(chars = {DirSep, AltSep}, leading = false, trailing = true)
+    return fromEnv.strip(chars = {DirSep, AltSep}, leading = false,
+        trailing = true)
   getHomeDir() / DefaultXdgCacheHome
 
 proc configDir*(): string =
@@ -45,7 +47,8 @@ proc applicationDirs*(): seq[string] =
   let xdgDataDirs = getEnv("XDG_DATA_DIRS", DefaultXdgDataDirs)
   for dir in xdgDataDirs.split(':'):
     if dir.len == 0: continue
-    let cleaned = dir.strip(chars = {DirSep, AltSep}, leading = false, trailing = true)
+    let cleaned = dir.strip(chars = {DirSep, AltSep}, leading = false,
+        trailing = true)
     dirs.add(cleaned / "applications")
 
   dirs.add("/var/lib/flatpak/exports/share/applications")

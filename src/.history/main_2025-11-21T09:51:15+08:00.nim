@@ -18,7 +18,8 @@ proc shouldExitOnFocusLoss(fs: FocusState): bool =
   let postGain = (now - fs.lastGainMs) > 150
   fs.hadFocus and armed and postGain
 
-proc handleVimCommandKey(sym: cint; ctrlHeld: bool; suppressText: var bool): bool =
+proc handleVimCommandKey(sym: cint; ctrlHeld: bool;
+    suppressText: var bool): bool =
   ## Handle Vim command-line keys. Return true if the key was consumed.
   case sym
   of K_RETURN:
@@ -57,7 +58,8 @@ proc handleVimCommandKey(sym: cint; ctrlHeld: bool; suppressText: var bool): boo
     ## Printable characters are handled by TextInput; do not block.
     false
 
-proc handleVimNormalKey(sym: cint; text: string; modState: int16; suppressText: var bool): bool =
+proc handleVimNormalKey(sym: cint; text: string; modState: int16;
+    suppressText: var bool): bool =
   ## Handle Vim-mode nav/open keys when not in command-line. Return true if consumed.
   let shiftHeld = (modState and ShiftMask) != 0
   case sym
@@ -128,7 +130,8 @@ proc handleVimNormalKey(sym: cint; text: string; modState: int16; suppressText: 
     vimPendingG = false
     false
 
-proc handleVimKey(sym: cint; text: string; modState: int16; suppressText: var bool) =
+proc handleVimKey(sym: cint; text: string; modState: int16;
+    suppressText: var bool) =
   if vimCommandActive:
     discard handleVimCommandKey(sym, (modState and CtrlMask) != 0, suppressText)
   else:
