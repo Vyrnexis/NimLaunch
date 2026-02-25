@@ -1,19 +1,17 @@
 # NimLaunch (SDL2)
 
-NimLaunch is a lightweight, keyboard-first launcher with fuzzy search, themes,
-shortcuts, power actions, and optional Vim mode. This build uses SDL2 for native
-Wayland/X11 support (no Xlib/Xft) with GPU-backed compositing.
+NimLaunch is a keyboard-first launcher with fuzzy app search, themes, shortcuts,
+power actions, and optional Vim mode. It uses SDL2 for native Wayland/X11
+support (no Xlib/Xft) with GPU-backed compositing.
 
 ![NimLaunch screenshot](screenshots/NimLaunch-SDL2.gif)
 
 ## Features
 - Fuzzy app search with typo tolerance; MRU bias for empty query.
-- Prefix commands: `:t` themes, `:c` config files, `:s` file search, `:r` shell run,
-  `!` shorthand, and custom shortcut groups (default power alias `:p`).
-- Vim mode (optional): hjkl navigation, `/ : !` command bar, `gg/G`, `:q`, etc.
-- Themes with live preview; clock overlay; status/toast messages.
-- Icons from `.desktop` files (PNG/SVG) with a fallback alias map; icons can be
-  toggled off in config.
+- Prefix commands: `:t`, `:c`, `:s`, `:r`, `!`, and custom groups (default alias `:p`).
+- Vim mode (optional): `j/k` navigation, `/ : !` command bar, `gg/G`, `:q`, etc.
+- Themes with live preview, status/toast messages, and clock overlay.
+- Icons from `.desktop` files (PNG/SVG) with fallback alias mapping; can be disabled.
 - Window opacity setting (0.1–1.0) via SDL2 when supported.
 
 ## Install
@@ -24,17 +22,8 @@ https://github.com/Vyrnexis/NimLaunch/releases
 > [!NOTE]
 > Deps: `nim >= 2.0`, `sdl2`, `sdl2_ttf`, `sdl2_image`, `librsvg`, plus a font
 > (default `ttf-dejavu`).
-
-> [!TIP]
-> Install a nerd font and change prompt/cursor characters for a nicer effect.
-> ```toml
-> [font]
-> fontname = "MesloLGL Nerd Font Propo:size=16"
 >
-> [input]
-> prompt = " "
-> cursor = " "
-> ```
+> Optional but recommended for faster `:s` file search: `fd` and/or `locate`.
 
 ### Archlinux
 ```bash
@@ -43,38 +32,43 @@ sudo pacman -S sdl2 sdl2_ttf sdl2_image librsvg ttf-dejavu --needed
 
 ### Ubuntu
 ```bash
-sudo apt install libsdl2-dev libsdl2-ttf-dev libsdl2-image-dev librsvg2-bin fonts-dejavu
+sudo apt install libsdl2-dev libsdl2-ttf-dev libsdl2-image-dev librsvg2-bin fonts-dejavu-core
 ```
 
 ### OpenSUSE
 ```bash
-sudo zypper install SDL2 SDL2_ttf SDL2_image-devel rsvg-convert dejavu-fonts
+# Tumbleweed / Slowroll package names:
+sudo zypper install SDL2-devel SDL2_ttf-devel SDL2_image-devel librsvg-tools dejavu-fonts
 ```
+If you are on Leap and a name differs, run `zypper search sdl2` and `zypper search rsvg`
+to find the matching package variant.
 
-### Build
+### Build from source
 ```bash
 git clone https://github.com/Vyrnexis/NimLaunch.git
-cd NimLaunch-SDL2
+cd NimLaunch
 ```
 
 ```bash
-nimble release   # or: nimble debug
+nimble -y nimDebug    # debug build -> ./bin/nimlaunch
+nimble -y nimRelease  # release build(custom flags) -> ./bin/nimlaunch
 ```
 
-For a more portable build (e.g., to run on other distros), use:
+For a more portable release build (via Zig/clang), use:
 
 ```bash
-nimble zigit
+nimble -y zigDebug    # debug build -> ./bin/nimlaunch
+nimble -y zigRelease  # release build(custom flags) -> ./bin/nimlaunch
 ```
 
-or
+Or compile directly with Nim:
 
 ```bash
 nim c -d:release --opt:speed -o:./bin/nimlaunch src/main.nim
 ```
 
 ```bash
-./bin/nimlaunch
+./bin/nimlaunch      # from task builds above
 ```
 
 Place the binary (`nimlaunch`) somewhere on your `PATH` (e.g., `~/.local/bin`) and
@@ -85,9 +79,20 @@ Runs natively on both via SDL2 (no XWayland required on Wayland). Borderless
 window like the original. GPU compositing handles fills/icons/text blits; SDL_ttf
 still rasterizes glyphs in software.
 
+## Troubleshooting
+- Build fails with `cannot open .../src/nimlaunch.nim`: build from project root,
+  or run `nimble -y nimDebug` / `nimble -y nimRelease` tasks.
+- `:s` search feels slow: install `fd` and/or `locate` so search avoids the
+  slower `$HOME` fallback walk.
+- Icons are missing for SVG apps: ensure `rsvg-convert` is installed
+  (`librsvg2-bin` on Ubuntu, `librsvg-tools` on openSUSE).
+- Text looks wrong or too small: set `[font].fontname` to an installed font and
+  size (e.g., `"Dejavu:size=16"`).
+- Theme changes do not persist: verify `~/.config/nimlaunch/nimlaunch.toml`
+  is writable.
+
 ## Quick Reference
-Every query updates the result list in real time. These shortcuts cover the
-core workflow:
+Core controls:
 
 | Trigger | Context | Effect |
 | ------- | ------- | ------ |
@@ -114,8 +119,7 @@ core workflow:
 | `:<group>` | `:p lock` | Run grouped shortcuts (e.g., `:p` for power) |
 
 ## Configuration
-The config lives at `~/.config/nimlaunch/nimlaunch.toml`. It is auto-generated on
-first run, shipping with sensible defaults and a long list of themes.
+Config path: `~/.config/nimlaunch/nimlaunch.toml` (auto-generated on first run).
 
 ```toml
 [window]
@@ -179,43 +183,28 @@ matchFgColorHex     = "#f8c291"
 last_chosen = "Nord"
 ```
 
-`vertical_align` only affects the Y position when `center = true`: `top` pins the
-window toward the top, `center` centers it vertically, and `one-third` places it
-about 1/3 down the display.
-
-`display` selects which monitor to use when `center = true` (0 = primary, 1 = second, etc.).
+`vertical_align` only affects Y when `center = true` (`top`, `center`, `one-third`).
+`display` selects the monitor index when centered (`0` = primary, `1` = second, ...).
 
 ## Shortcuts (how they work)
-A shortcut is a template you trigger with `:`. The text you type after the
-prefix becomes `{query}`.
+A shortcut is a `:`-triggered template. Text after the prefix is inserted as
+`{query}`.
 
-Example: typing `:g cats` uses the shortcut below and opens Google with "cats".
-
-```toml
-[[shortcuts]]
-prefix = "g"
-label  = "Search Google: "
-base   = "https://www.google.com/search?q={query}"
-mode   = "url"
-```
-
-Shortcut fields:
+Fields:
 - `prefix`: what you type after `:` (e.g., `g`, `note`, `rg`).
 - `label`: text shown in the results list.
 - `base`: template command/URL/path. Use `{query}` where the input should go.
-- `mode`:
-  - `url`: opens the URL in a browser (query is URL-encoded).
-  - `shell`: runs a shell command (query is safely quoted).
-  - `file`: opens a file or folder (expands `~`).
+- `mode = "url"`: opens URL (query is URL-encoded).
+- `mode = "shell"`: runs shell command (query is safely quoted).
+- `mode = "file"`: opens file/folder (`~` expands).
 
-If `group` is set, the entry does not need a `prefix` because the group name
-becomes the prefix (e.g., `:dev`, `:sys`, `:p`).
+If `group` is set, `prefix` is optional because the group name becomes the
+prefix (e.g., `:dev`, `:sys`, `:p`).
 
 ## Groups (powerful shortcuts)
-Groups let you collect shortcuts under a shared prefix like `:dev` or `:p`.
-Each group has a `query_mode`:
-- `filter`: your input filters the list by label (safe for power/system).
-- `pass`: your input is passed to each shortcut as `{query}` (great for search/dev).
+Groups collect shortcuts under one prefix (`:dev`, `:sys`, `:p`).
+- `query_mode = "filter"`: query filters by label.
+- `query_mode = "pass"`: query is passed as `{query}` to each entry.
 
 Filter example (menu-style):
 ```toml
@@ -238,8 +227,6 @@ mode     = "shell"
 run_mode = "spawn"
 ```
 
-Usage: `:sys` shows the list, `:sys su` narrows to Suspend.
-
 Pass-through example (multi-tool search):
 ```toml
 [[groups]]
@@ -259,49 +246,40 @@ base  = "https://docs.example.com/search?q={query}"
 mode  = "url"
 ```
 
-Usage: `:dev crash` shows both results using \"crash\" as the query.
-
 ### Power group
-The power menu is just a group named `power`. The `:p` prefix is an alias
-controlled by `[power].prefix`.
+The power menu is a normal group named `power`; `:p` is an alias from
+`[power].prefix`.
 
 ## Vim mode
-Enable by setting `[input].vim_mode = true` in `~/.config/nimlaunch/nimlaunch.toml`.
-Vim mode adds:
+Enable with `[input].vim_mode = true` in `~/.config/nimlaunch/nimlaunch.toml`.
+General controls in Quick Reference still apply; Vim mode adds:
 
 | Trigger | Effect |
 | ------- | ------ |
-| `h` / `j` / `k` / `l` | Move cursor left/down/up/right (acts on the result list) |
+| `j` / `k` | Move selection down / up |
+| `h` | Delete one character from the input |
+| `l` | Launch the highlighted entry |
 | `gg` / `Shift+G` | Jump to top / bottom of the list |
-| `/` | Toggle the command bar; reopening restores the last slash search |
-| `:` / `!` | Open the command bar primed for colon or bang commands |
-| `Enter` | Launch the highlighted entry immediately |
-| `Esc` | Leave command mode but keep the current filtered results |
+| `/` | Open the command bar for search |
+| `:` | Open the command bar for prefix commands |
+| `!` | Open the command bar for run commands (`:r` shorthand) |
+| `Esc` | Close the command bar and keep current filtered results |
 | `:q` (then Enter) | Quit NimLaunch from the command bar |
-| `Ctrl+H` | Delete one character (when empty, closes the bar) |
-| `Ctrl+U` | Clear the entire command |
 
 ## File discovery & caching
 NimLaunch indexes `.desktop` files from:
 
 1. `~/.local/share/applications`
 2. `~/.local/share/flatpak/exports/share/applications`
-3. `/usr/share/applications`
+3. each `<dir>/applications` from `$XDG_DATA_DIRS` (defaults to `/usr/local/share:/usr/share`)
 4. `/var/lib/flatpak/exports/share/applications`
 
-Metadata is cached at `~/.cache/nimlaunch/apps.json`. The cache is invalidated
-automatically when source directories change. Entries flagged as `NoDisplay=true`,
-`Terminal=true`, or belonging solely to the `Settings` / `System` categories are
-skipped so the list remains focused on launchable apps.
-
-Recent launches are tracked in `~/.cache/nimlaunch/recent.json`, ensuring the
-empty-query view always surfaces the last applications you opened.
+App metadata is cached in `~/.cache/nimlaunch/apps.json` and invalidated when
+source dirs change. Entries with `NoDisplay=true`, `Hidden=true`,
+`Terminal=true`, or exact `Settings` / `System` categories are skipped.
+Recent launches are tracked in `~/.cache/nimlaunch/recent.json`.
 
 ## Themes
-- `:t` shows the theme list; move with Up/Down to preview instantly and press
-  Enter to keep the selection. Leaving `:t` without pressing Enter restores the
-  theme you started with.
-- Add or edit `[[themes]]` blocks in the TOML to create your own colour schemes.
-
-Popular presets include Nord, Catppuccin (all flavours), Ayu, Dracula, Gruvbox,
-Solarized, Tokyo Night, Monokai, Palenight, and more.
+- Use `:t` to browse themes, preview with Up/Down, and press Enter to keep.
+- Leaving `:t` without Enter restores the previous theme.
+- Add/edit `[[themes]]` in TOML to create custom palettes.
