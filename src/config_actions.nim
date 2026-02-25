@@ -1,7 +1,7 @@
 ## config_actions.nim — ~/.config discovery helpers.
 
 import std/[os]
-import ./[state, utils, paths]
+import ./[state, paths]
 
 proc loadConfigFiles*() =
   ## Build the cached ~/.config file list once per run.
@@ -13,7 +13,7 @@ proc loadConfigFiles*() =
       if fn.len == 0: continue
       configFilesCache.add DesktopApp(
         name: fn,
-        exec: "xdg-open " & shellQuote(path),
+        exec: path,
         hasIcon: false
       )
     configFilesLoaded = true

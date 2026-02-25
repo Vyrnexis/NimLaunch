@@ -23,12 +23,12 @@ proc tryStart(candidates: seq[(string, seq[string])]): bool =
 
 proc openPathWithDefault*(path: string): bool =
   ## Open a file with the system default handler; fall back to common editors.
-  let abs = absolutePath(path)
-  if not fileExists(abs): return false
+  let absPath = absolutePath(path)
+  if not fileExists(absPath): return false
 
   ## Preferred system openers
-  if tryStart(@[(findExe("xdg-open"), @[abs]),
-               (findExe("gio"), @["open", abs])]):
+  if tryStart(@[(findExe("xdg-open"), @[absPath]),
+               (findExe("gio"), @["open", absPath])]):
     return true
 
   ## Respect user editor preference
@@ -53,7 +53,7 @@ proc openPathWithDefault*(path: string): bool =
     var args: seq[string] = @[]
     if tokens.len > 1:
       args = tokens[1 ..< tokens.len]
-    args.add abs
+    args.add absPath
     envCandidates.add((exePath, args))
   if tryStart(envCandidates):
     return true
@@ -63,7 +63,7 @@ proc openPathWithDefault*(path: string): bool =
   for ed in ["gedit", "kate", "mousepad", "code", "nano", "vi"]:
     let exe = findExe(ed)
     if exe.len > 0:
-      fallbackCandidates.add((exe, @[abs]))
+      fallbackCandidates.add((exe, @[absPath]))
   if tryStart(fallbackCandidates):
     return true
 
@@ -141,26 +141,23 @@ proc runCommand*(cmd: string) =
   ## Run `cmd` in the user's terminal; fall back to /bin/sh if none.
   let bash = findExe("bash")
   let shExe = if bash.len > 0: bash else: "/bin/sh"
-
-  var parts = tokenize(chooseTerminal()) # parser.tokenize on config.terminalExe/$TERMINAL
-  if parts.len == 0:
+  proc runShellFallback() =
     let (_, shArgs) = buildShellCommand(cmd, shExe)
     try:
       discard startProcess(shExe, args = shArgs,
                            options = {poDaemon, poParentStreams})
     except CatchableError as e:
       echo "runCommand failed: ", cmd, " (", e.name, "): ", e.msg
+
+  var parts = tokenize(chooseTerminal()) # parser.tokenize on config.terminalExe/$TERMINAL
+  if parts.len == 0:
+    runShellFallback()
     return
 
   let exe = parts[0]
   let exePath = findExe(exe)
   if exePath.len == 0:
-    let (_, shArgs) = buildShellCommand(cmd, shExe)
-    try:
-      discard startProcess(shExe, args = shArgs,
-                           options = {poDaemon, poParentStreams})
-    except CatchableError as e:
-      echo "runCommand failed: ", cmd, " (", e.name, "): ", e.msg
+    runShellFallback()
     return
 
   var termArgs = if parts.len > 1: parts[1..^1] else: @[]

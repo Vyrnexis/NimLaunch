@@ -77,7 +77,8 @@ proc saveLastTheme*(cfgPath: string) =
         updated = true
         inTheme = false
         break
-      if l.startsWith("last_chosen"):
+      let eq = l.find('=')
+      if eq > 0 and l[0 ..< eq].strip() == "last_chosen":
         lines[i] = "last_chosen = \"" & st.config.themeName & "\""
         updated = true
         inTheme = false
@@ -103,46 +104,53 @@ proc loadShortcutsSection(tbl: toml.TomlValueRef; cfgPath: string) =
   if not tbl.hasKey("shortcuts"): return
 
   try:
+    var invalidCount = 0
     for scVal in tbl["shortcuts"].getElems():
-      let scTbl = scVal.getTable()
-      let prefixRaw = scTbl.getOrDefault("prefix").getStr("")
-      var prefix = normalizePrefix(prefixRaw)
-      let base = scTbl.getOrDefault("base").getStr("").strip()
-      let label = scTbl.getOrDefault("label").getStr("").strip(chars = {'\t',
-          '\r', '\n'})
-      let modeStr = scTbl.getOrDefault("mode").getStr("url").toLowerAscii
-      let group = scTbl.getOrDefault("group").getStr("").strip().toLowerAscii
-      let runModeStr = scTbl.getOrDefault("run_mode").getStr("").strip().toLowerAscii
-      let stayOpen = scTbl.getOrDefault("stay_open").getBool(false)
+      try:
+        let scTbl = scVal.getTable()
+        let prefixRaw = scTbl.getOrDefault("prefix").getStr("")
+        var prefix = normalizePrefix(prefixRaw)
+        let base = scTbl.getOrDefault("base").getStr("").strip()
+        let label = scTbl.getOrDefault("label").getStr("").strip(chars = {'\t',
+            '\r', '\n'})
+        let modeStr = scTbl.getOrDefault("mode").getStr("url").toLowerAscii
+        let group = scTbl.getOrDefault("group").getStr("").strip().toLowerAscii
+        let runModeStr = scTbl.getOrDefault("run_mode").getStr("").strip().toLowerAscii
+        let stayOpen = scTbl.getOrDefault("stay_open").getBool(false)
 
-      if base.len == 0:
-        continue
-      if group.len > 0:
-        prefix.setLen(0) # groups use their own prefix; ignore per-entry prefixes
-      if prefix.len == 0 and group.len == 0:
-        continue
+        if base.len == 0:
+          continue
+        if group.len > 0:
+          prefix.setLen(0) # groups use their own prefix; ignore per-entry prefixes
+        if prefix.len == 0 and group.len == 0:
+          continue
 
-      var mode = smUrl
-      case modeStr
-      of "shell": mode = smShell
-      of "file": mode = smFile
-      else: discard
-      if group == "power" and mode != smShell:
-        mode = smShell
+        var mode = smUrl
+        case modeStr
+        of "shell": mode = smShell
+        of "file": mode = smFile
+        else: discard
+        if group == "power" and mode != smShell:
+          mode = smShell
 
-      var runMode = pamTerminal
-      case runModeStr
-      of "spawn": runMode = pamSpawn
-      of "terminal": runMode = pamTerminal
-      else: discard
+        var runMode = pamTerminal
+        case runModeStr
+        of "spawn": runMode = pamSpawn
+        of "terminal": runMode = pamTerminal
+        else: discard
 
-      st.shortcuts.add Shortcut(prefix: prefix,
-                                label: label,
-                                base: base,
-                                mode: mode,
-                                group: group,
-                                runMode: runMode,
-                                stayOpen: stayOpen)
+        st.shortcuts.add Shortcut(prefix: prefix,
+                                  label: label,
+                                  base: base,
+                                  mode: mode,
+                                  group: group,
+                                  runMode: runMode,
+                                  stayOpen: stayOpen)
+      except CatchableError:
+        inc invalidCount
+    if invalidCount > 0:
+      echo "NimLaunch warning: skipped ", invalidCount,
+          " invalid [[shortcuts]] entries in ", cfgPath
   except CatchableError:
     echo "NimLaunch warning: ignoring invalid [[shortcuts]] entries in ", cfgPath
 
@@ -157,13 +165,20 @@ proc loadGroupsSection(tbl: toml.TomlValueRef; cfgPath: string) =
   if not tbl.hasKey("groups"): return
 
   try:
+    var invalidCount = 0
     for grpVal in tbl["groups"].getElems():
-      let grpTbl = grpVal.getTable()
-      let name = grpTbl.getOrDefault("name").getStr("").strip().toLowerAscii
-      if name.len == 0:
-        continue
-      let modeStr = grpTbl.getOrDefault("query_mode").getStr("filter").strip().toLowerAscii
-      st.groupQueryModes[name] = parseGroupQueryMode(modeStr)
+      try:
+        let grpTbl = grpVal.getTable()
+        let name = grpTbl.getOrDefault("name").getStr("").strip().toLowerAscii
+        if name.len == 0:
+          continue
+        let modeStr = grpTbl.getOrDefault("query_mode").getStr("filter").strip().toLowerAscii
+        st.groupQueryModes[name] = parseGroupQueryMode(modeStr)
+      except CatchableError:
+        inc invalidCount
+    if invalidCount > 0:
+      echo "NimLaunch warning: skipped ", invalidCount,
+          " invalid [[groups]] entries in ", cfgPath
   except CatchableError:
     echo "NimLaunch warning: ignoring invalid [[groups]] entries in ", cfgPath
 
@@ -302,19 +317,26 @@ proc initLauncherConfig*() =
   st.themeList = @[]
   if tbl.hasKey("themes"):
     try:
+      var invalidCount = 0
       for thVal in tbl["themes"].getElems():
-        let th = thVal.getTable()
-        st.themeList.add Theme(
-          name: th.getOrDefault("name").getStr(""),
-          bgColorHex: th.getOrDefault("bgColorHex").getStr(""),
-          fgColorHex: th.getOrDefault("fgColorHex").getStr(""),
-          highlightBgColorHex: th.getOrDefault("highlightBgColorHex").getStr(
-              ""),
-          highlightFgColorHex: th.getOrDefault("highlightFgColorHex").getStr(
-              ""),
-          borderColorHex: th.getOrDefault("borderColorHex").getStr(""),
-          matchFgColorHex: th.getOrDefault("matchFgColorHex").getStr("")
-        )
+        try:
+          let th = thVal.getTable()
+          st.themeList.add Theme(
+            name: th.getOrDefault("name").getStr(""),
+            bgColorHex: th.getOrDefault("bgColorHex").getStr(""),
+            fgColorHex: th.getOrDefault("fgColorHex").getStr(""),
+            highlightBgColorHex: th.getOrDefault("highlightBgColorHex").getStr(
+                ""),
+            highlightFgColorHex: th.getOrDefault("highlightFgColorHex").getStr(
+                ""),
+            borderColorHex: th.getOrDefault("borderColorHex").getStr(""),
+            matchFgColorHex: th.getOrDefault("matchFgColorHex").getStr("")
+          )
+        except CatchableError:
+          inc invalidCount
+      if invalidCount > 0:
+        echo "NimLaunch warning: skipped ", invalidCount,
+            " invalid [[themes]] entries in ", cfgPath
     except CatchableError:
       echo "NimLaunch warning: ignoring invalid [[themes]] entries in ", cfgPath
 

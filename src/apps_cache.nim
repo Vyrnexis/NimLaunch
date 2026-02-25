@@ -11,8 +11,11 @@ proc newestDesktopMtime(dir: string): int64 =
   var newest = 0'i64
   for entry in walkDirRec(dir, yieldFilter = {pcFile}):
     if entry.endsWith(".desktop"):
-      let m = times.toUnix(getLastModificationTime(entry))
-      if m > newest: newest = m
+      try:
+        let m = times.toUnix(getLastModificationTime(entry))
+        if m > newest: newest = m
+      except CatchableError:
+        discard
   newest
 
 proc loadApplications*() =
@@ -36,8 +39,8 @@ proc loadApplications*() =
           return
       else:
         echo "Cache invalid — rescanning …"
-    except:
-      echo "Cache miss — rescanning …"
+    except CatchableError as e:
+      echo "Cache miss — rescanning (", e.name, ": ", e.msg, ")"
 
   var dedup = initTable[string, DesktopApp]()
   for dir in appDirs:

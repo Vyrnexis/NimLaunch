@@ -15,7 +15,7 @@ proc processSearchDebounce(): bool =
     return true
   false
 
-proc main() =
+proc main*() =
   if not ensureSingleInstance():
     echo "NimLaunch is already running."
     quit 0

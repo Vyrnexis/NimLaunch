@@ -33,7 +33,7 @@ proc parseHexRgb8*(hex: string): Option[Rgb] =
     let g = parseHexInt(hex[3..4])
     let b = parseHexInt(hex[5..6])
     some(Rgb(r: uint8(r), g: uint8(g), b: uint8(b)))
-  except:
+  except ValueError:
     none(Rgb)
 
 # ── Recent/MRU (applications) persistence ───────────────────────────────

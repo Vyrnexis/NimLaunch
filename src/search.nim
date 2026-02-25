@@ -8,6 +8,10 @@ const
   SearchShowCap* = 250    # cap items we score per rebuild
   SearchCacheMax* = 6     # keep a small cache of recent queries
 
+static:
+  doAssert SearchFdCap >= SearchShowCap
+  doAssert SearchCacheMax > 0
+
 var
   lastSearchBuildMs* = 0'i64            ## idle-loop guard to rebuild after debounce
   lastSearchQuery* = ""                 ## cache key for s: queries

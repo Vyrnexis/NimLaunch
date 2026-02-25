@@ -367,12 +367,7 @@ proc buildSearchActions(rest: string): seq[Action] =
   let maxScore = min(paths.len, SearchShowCap)
 
   let homeDir = getHomeDir()
-  let homeDepth = block:
-    var depth = 0
-    for ch in homeDir:
-      if ch == '/':
-        inc depth
-    depth
+  let homeDepth = pathDepth(homeDir)
   var topScores = initHeapQueue[(int, string)]()
   let limit = config.maxVisibleItems
   let queryLower = restLower
@@ -543,7 +538,7 @@ proc performAction*(a: Action) =
   of akRun:
     runCommand(a.exec)
   of akConfig:
-    if not spawnShellCommand(a.exec):
+    if not openPathWithFallback(a.exec):
       gui.notifyStatus("Failed: " & a.label, 1600)
       exitAfter = false
   of akFile:

@@ -184,10 +184,15 @@ proc parseDesktopFile*(path: string): Option[DesktopApp] =
     if line.startsWith('[') and line.endsWith(']'):
       inDesktopEntry = (line == "[Desktop Entry]")
       continue
-    if inDesktopEntry and '=' in line:
-      let parts = line.split('=', 1)
-      if parts.len == 2:
-        kv[parts[0].strip()] = parts[1].strip()
+    if inDesktopEntry:
+      let eq = line.find('=')
+      if eq > 0:
+        let key = line[0 ..< eq].strip()
+        if key.len > 0:
+          let value =
+            if eq + 1 < line.len: line[eq + 1 .. ^1].strip()
+            else: ""
+          kv[key] = value
 
   let name = getBestValue(kv, "Name")
   let exec = getBestValue(kv, "Exec")
