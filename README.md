@@ -88,6 +88,9 @@ still rasterizes glyphs in software.
   (`librsvg2-bin` on Ubuntu, `librsvg-tools` on openSUSE).
 - Text looks wrong or too small: set `[font].fontname` to an installed font and
   size (e.g., `"Dejavu:size=16"`).
+- Wayland/Niri black padding or delayed repaint: build with
+  `nim c -d:nimlaunchWindowDebug --nimcache:/tmp/nimlaunch_dbg_cache -o:/tmp/nimlaunch_dbg src/main.nim`
+  and run `/tmp/nimlaunch_dbg` to log window events + redraw timing.
 - Theme changes do not persist: verify `~/.config/nimlaunch/nimlaunch.toml`
   is writable.
 
