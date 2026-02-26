@@ -43,7 +43,8 @@ proc main*() =
       of QuitEvent:
         shouldExit = true
       of WindowEvent:
-        handleWindowEvent(ev, focus)
+        if handleWindowEvent(ev, focus):
+          gui.redrawWindow()
       of KeyDown:
         if handleKeyDown(ev, focus, suppressNextTextInput):
           gui.redrawWindow()

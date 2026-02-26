@@ -254,16 +254,38 @@ proc appendTextInput*(txt: string) =
   lastInputChangeMs = gui.nowMs()
   buildActions()
 
-proc handleWindowEvent*(ev: Event; focus: var FocusState) =
+proc handleWindowEvent*(ev: Event; focus: var FocusState): bool =
+  ## Handle window lifecycle/resize events and report whether a redraw is needed.
+  var needsRedraw = false
   case ev.window.event
   of WindowEvent_FocusGained:
     focus.hadFocus = true
     focus.lastGainMs = gui.nowMs()
+    needsRedraw = true
+  of WindowEvent_Shown, WindowEvent_Exposed:
+    needsRedraw = true
+  of WindowEvent_SizeChanged, WindowEvent_Resized:
+    if ev.window.data1 > 0 and ev.window.data2 > 0:
+      ## Keep layout dimensions in sync with compositor-configured window size.
+      config.winWidth = ev.window.data1
+      config.winMaxHeight = ev.window.data2
+    needsRedraw = true
   of WindowEvent_FocusLost, WindowEvent_Hidden, WindowEvent_Minimized:
     if shouldExitOnFocusLoss(focus):
       shouldExit = true
   else:
     discard
+
+  when gui.WindowDebug:
+    let m = gui.windowMetrics()
+    echo "[window-debug] event=", $ev.window.event,
+        " data=", ev.window.data1, "x", ev.window.data2,
+        " win=", m.winW, "x", m.winH,
+        " drawable=", m.drawW, "x", m.drawH,
+        " layout=", config.winWidth, "x", config.winMaxHeight,
+        " redraw=", needsRedraw
+
+  needsRedraw
 
 proc handleKeyDown*(ev: Event; focus: var FocusState;
     suppressNextTextInput: var bool): bool =

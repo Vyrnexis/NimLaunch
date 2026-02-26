@@ -43,6 +43,9 @@ type
 
 var st: BackendState
 
+const
+  WindowDebug* = defined(nimlaunchWindowDebug)
+
 # Colours cached from Config
 var
   colBg: Color
@@ -202,6 +205,18 @@ proc destroyState() =
 
 proc nowMs*(): int64 =
   (epochTime() * 1_000).int64
+
+proc windowMetrics*(): tuple[winW, winH, drawW, drawH: int] =
+  ## Return logical window size + renderer drawable size (pixels).
+  if st.isNil or st.window.isNil:
+    return (0, 0, 0, 0)
+  let win = getSize(st.window)
+  var drawW, drawH: cint
+  if st.renderer.isNil or getRendererOutputSize(st.renderer, addr drawW,
+      addr drawH) != 0:
+    drawW = win.x
+    drawH = win.y
+  (win.x.int, win.y.int, drawW.int, drawH.int)
 
 proc notifyThemeChanged*(name: string) =
   currentThemeName = name
@@ -676,6 +691,12 @@ proc presentFrame() =
 
 proc redrawWindow*() =
   if st.isNil: return
+
+  when WindowDebug:
+    let m = windowMetrics()
+    echo "[window-debug] redrawWindow win=", m.winW, "x", m.winH,
+        " drawable=", m.drawW, "x", m.drawH,
+        " layout=", config.winWidth, "x", config.winMaxHeight
 
   discard st.renderer.setDrawColor(colBg.r, colBg.g, colBg.b, colBg.a)
   discard st.renderer.clear()
