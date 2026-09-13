@@ -1,4 +1,4 @@
-import std/[assertions, os, osproc, strutils, unicode]
+import std/[assertions, os, osproc, unicode]
 import sdl3
 import ../src/[state, layout, parser, fuzzy, app_core, input, proc_utils, utils,
     settings, apps_cache, search, gui]
@@ -93,30 +93,17 @@ block shell_wrapper_accepts_trailing_syntax:
     doAssert process.waitForExit() == 0
     process.close()
 
-block theme_writer_preserves_comments_and_single_table:
-  let path = getTempDir() / "nimlaunch-theme-save.toml"
+block theme_choice_uses_cache_file:
+  let root = getTempDir() / "nimlaunch-theme-state"
+  let oldCacheHome = getEnv("XDG_CACHE_HOME")
   defer:
-    if fileExists(path):
-      removeFile(path)
-  writeFile(path, "[theme] # selected\n\"last_chosen\" = \"Old\" # keep\n" &
-      "[[themes]]\nname = \"Example\"\n")
+    putEnv("XDG_CACHE_HOME", oldCacheHome)
+    if dirExists(root):
+      removeDir(root)
+  putEnv("XDG_CACHE_HOME", root)
   ctx.config.themeName = "New"
-  doAssert saveLastTheme(path)
-  let saved = readFile(path)
-  doAssert saved.count("[theme]") == 1
-  doAssert saved.contains("last_chosen = \"New\" # keep")
-  doAssert saved.contains("[[themes]]\nname = \"Example\"")
-
-block malformed_theme_file_is_not_overwritten:
-  let path = getTempDir() / "nimlaunch-theme-invalid.toml"
-  defer:
-    if fileExists(path):
-      removeFile(path)
-  let original = "[theme\nlast_chosen = \"Old\"\n"
-  writeFile(path, original)
-  ctx.config.themeName = "New"
-  doAssert not saveLastTheme(path)
-  doAssert readFile(path) == original
+  doAssert saveLastTheme()
+  doAssert readFile(root / "nimlaunch/theme") == "New\n"
 
 block expired_status_requests_clear_redraw:
   gui.statusText = "done"

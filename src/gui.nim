@@ -61,7 +61,6 @@ type
     baseFontSize: int
     metrics: UiMetrics
     iconCache: Table[string, IconTexture]
-    iconPathCache: Table[string, string]
     textCache: Table[string, tuple[tex: Texture, w, h: int]]
     textCacheQueue: seq[string]
     windowShown: bool
@@ -482,7 +481,6 @@ proc fitWindowToContent(metrics: UiMetrics): bool =
 proc destroyIconTextures() =
   if st.isNil: return
   st.iconCache.clear()
-  st.iconPathCache.clear()
 
 proc rebuildFonts() =
   if st.isNil:
@@ -725,7 +723,6 @@ proc initGui*() =
     quit "[ERROR] createRenderer: " & $getError()
 
   st.iconCache = initTable[string, IconTexture]()
-  st.iconPathCache = initTable[string, string]()
   discard refreshMetrics(force = true)
 
   when declared(setWindowOpacity):
@@ -924,43 +921,36 @@ proc drawText(x, y: int; text: string; spans: seq[(int, int)] = @[];
           int(round(tw.float)), textHeight)
       discard renderTexture(st.renderer, tex, nil, dst.addr)
 
-proc drawThemeOverlay() =
-  if currentThemeName.len == 0: return
+## Draw right-aligned overlay text above the result area.
+proc drawOverlay(text: string; color: Color) =
   let m = currentMetrics()
-  let elapsed = nowMs() - lastThemeSwitchMs
-  if elapsed > 500: return
-  let alpha = 1.0 - (elapsed.float / 500.0)
-  var col = colFg
-  col.a = uint8(255.0 * alpha)
-  let (w, _) = measureText(st.fontOverlay, currentThemeName)
+  let (w, _) = measureText(st.fontOverlay, text)
   let margin = m.overlayMarginPx
   let tx = m.drawW - w - margin
   let ty = if ctx.config.vimMode:
       margin + m.overlayLineHeightPx + m.overlayStackGapPx
     else: margin
-  let tex = renderText(st.fontOverlay, currentThemeName, col)
+  let tex = renderText(st.fontOverlay, text, color)
   if tex.isNil: return
   var tw, th: cfloat
   discard getTextureSize(tex, tw, th)
   let dst = toFRect(tx, ty, int(round(tw.float)), int(round(th.float)))
   discard renderTexture(st.renderer, tex, nil, dst.addr)
 
+## Draw the fading theme-name overlay while a preview is active.
+proc drawThemeOverlay() =
+  if currentThemeName.len == 0: return
+  let elapsed = nowMs() - lastThemeSwitchMs
+  if elapsed > 500: return
+  var color = colFg
+  color.a = uint8(255.0 * (1.0 - elapsed.float / 500.0))
+  drawOverlay(currentThemeName, color)
+
+## Draw the current status message until its deadline.
 proc drawStatusOverlay() =
   if statusText.len == 0: return
   if nowMs() > statusUntilMs: return
-  let m = currentMetrics()
-  let (w, _) = measureText(st.fontOverlay, statusText)
-  let margin = m.overlayMarginPx
-  let tx = m.drawW - w - margin
-  let ty = if ctx.config.vimMode:
-      margin + m.overlayLineHeightPx + m.overlayStackGapPx
-    else: margin
-  let tex = renderText(st.fontOverlay, statusText, colFg)
-  if tex.isNil: return
-  var tw, th: cfloat
-  discard getTextureSize(tex, tw, th)
-  let dst = toFRect(tx, ty, int(round(tw.float)), int(round(th.float)))
-  discard renderTexture(st.renderer, tex, nil, dst.addr)
+  drawOverlay(statusText, colFg)
 
 proc drawClock(topRight = false) =
   let m = currentMetrics()
@@ -990,15 +980,15 @@ proc drawPromptAndInput(y: var int) =
 proc drawVisibleRows(startY: int): int =
   let m = currentMetrics()
   var y = startY
-  let total = ctx.filteredApps.len
+  let total = ctx.actions.len
   let maxRows = m.visibleRows
   let start = ctx.viewOffset
   let finish = min(ctx.viewOffset + maxRows, total)
   for idx in start ..< finish:
-    let row = ctx.filteredApps[idx]
+    let action = ctx.actions[idx]
     let selected = (idx == ctx.selectedIndex)
-    drawText(roundScaled(BasePromptInset, m.scale), y, row.text,
-        ctx.matchSpans[idx], selected, row.iconName)
+    drawText(roundScaled(BasePromptInset, m.scale), y, action.label,
+        ctx.matchSpans[idx], selected, action.iconName)
     y += m.lineHeightPx
   y
 

@@ -409,7 +409,7 @@ proc buildSearchActions(rest: string): seq[Action] =
   while topScores.len > 0: ranked.add pop(topScores)
   ranked.reverse()
 
-  let showCap = max(limit, min(40, SearchShowCap))
+  let showCap = max(limit, 40)
   for i, it in ranked:
     if i >= showCap: break
     let path = it[1]
@@ -536,14 +536,12 @@ proc buildDefaultActions(rest: string; defaultIndex: var int): seq[Action] =
   if result.len == 0:
     result.add Action(kind: akPlaceholder, label: "No applications found", exec: "")
 
-proc updateDisplayRows(cmd: CmdKind; highlightQuery: string;
+proc updateDisplayState(cmd: CmdKind; highlightQuery: string;
     defaultIndex: int) =
-  ## Sync ctx.filteredApps/ctx.matchSpans and maintain selection/preview state.
-  ctx.filteredApps.setLen(0)
+  ## Sync match spans and maintain selection and preview state.
   ctx.matchSpans.setLen(0)
 
   for act in ctx.actions:
-    ctx.filteredApps.add DisplayRow(text: act.label, iconName: act.iconName)
     if highlightQuery.len == 0:
       ctx.matchSpans.add @[]
     else:
@@ -586,12 +584,12 @@ proc updateDisplayRows(cmd: CmdKind; highlightQuery: string;
     else:
       endThemePreviewSession(false)
 
-# ── Build ctx.actions & mirror to ctx.filteredApps ─────────────────────────────
+# ── Build ctx.actions and display state ────────────────────────────────────────
 proc buildActions*() =
-  ## Populate `ctx.actions` based on `ctx.inputText`; mirror to GUI lists/spans.
+  ## Populate actions and match spans from the current input.
   if ctx.dmenuMode:
     ctx.actions = buildDmenuActions(ctx.inputText)
-    updateDisplayRows(ckNone, ctx.inputText, 0)
+    updateDisplayState(ckNone, ctx.inputText, 0)
     return
 
   let (cmd, rest, shortcutIdx, groupName) = parseCommand(ctx.inputText)
@@ -624,7 +622,7 @@ proc buildActions*() =
     nextActions.add Action(kind: akPlaceholder, label: "No matches", exec: "")
 
   ctx.actions = nextActions
-  updateDisplayRows(cmd, rest, defaultIndex)
+  updateDisplayState(cmd, rest, defaultIndex)
 
 # ── Perform selected action ─────────────────────────────────────────────
 proc clearInput*() =
@@ -655,21 +653,10 @@ proc performAction*(a: Action) =
     if not openPathWithFallback(a.exec):
       gui.notifyStatus("Failed to open: " & a.label, 1600)
       exitAfter = false
-  of akApp:
-    let expansion = parser.expandExecArgs(a.exec, a.appData.name,
-        a.appData.icon, a.appData.desktopFile)
-    let args = expansion.args
-    var success = false
-    if expansion.valid and args.len > 0:
-      success = spawnProcess(args[0], args[1..^1], a.appData.workingDir)
-    if success:
-      recordAppLaunch(a.appData)
-    else:
-      gui.notifyStatus("Failed: " & a.label, 1600)
-      exitAfter = false
-  of akAppAction:
-    let expansion = parser.expandExecArgs(a.exec, a.desktopName,
-        a.desktopIcon, a.appData.desktopFile)
+  of akApp, akAppAction:
+    let name = if a.kind == akApp: a.appData.name else: a.desktopName
+    let icon = if a.kind == akApp: a.appData.icon else: a.desktopIcon
+    let expansion = parser.expandExecArgs(a.exec, name, icon, a.appData.desktopFile)
     let args = expansion.args
     var success = false
     if expansion.valid and args.len > 0:
@@ -711,8 +698,7 @@ proc performAction*(a: Action) =
   of akTheme:
     ## Apply and persist, but DO NOT reset selection or exit.
     applyThemeAndColors(ctx.config, a.exec, doNotify = false, doRedraw = false)
-    let targetPath = if ctx.configOverridePath.len > 0: ctx.configOverridePath else: configDir() / "nimlaunch.toml"
-    discard saveLastTheme(targetPath)
+    discard saveLastTheme()
     endThemePreviewSession(true)
     clearInput()
     gui.redrawWindow()
@@ -736,10 +722,10 @@ proc activateCurrentSelection*() =
     performAction(ctx.actions[ctx.selectedIndex])
 
 proc moveSelectionBy*(step: int) =
-  if ctx.filteredApps.len == 0: return
+  if ctx.actions.len == 0: return
   var newIndex = ctx.selectedIndex + step
   if newIndex < 0: newIndex = 0
-  if newIndex > ctx.filteredApps.len - 1: newIndex = ctx.filteredApps.len - 1
+  if newIndex > ctx.actions.len - 1: newIndex = ctx.actions.len - 1
   if newIndex == ctx.selectedIndex: return
   ctx.selectedIndex = newIndex
   let visibleRows = gui.visibleRowCount()
@@ -751,14 +737,14 @@ proc moveSelectionBy*(step: int) =
   updateThemePreview(parseCommand(ctx.inputText)[0] == ckTheme, ctx.actions, ctx.selectedIndex)
 
 proc jumpToTop*() =
-  if ctx.filteredApps.len == 0: return
+  if ctx.actions.len == 0: return
   ctx.selectedIndex = 0
   ctx.viewOffset = 0
   updateThemePreview(parseCommand(ctx.inputText)[0] == ckTheme, ctx.actions, ctx.selectedIndex)
 
 proc jumpToBottom*() =
-  if ctx.filteredApps.len == 0: return
-  ctx.selectedIndex = ctx.filteredApps.len - 1
-  let start = ctx.filteredApps.len - gui.visibleRowCount()
+  if ctx.actions.len == 0: return
+  ctx.selectedIndex = ctx.actions.len - 1
+  let start = ctx.actions.len - gui.visibleRowCount()
   ctx.viewOffset = if start > 0: start else: 0
   updateThemePreview(parseCommand(ctx.inputText)[0] == ckTheme, ctx.actions, ctx.selectedIndex)

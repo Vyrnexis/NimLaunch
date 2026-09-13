@@ -7,31 +7,6 @@ import ./[state as st, gui, utils, paths]
 var
   baseMatchFgColorHex = "" ## default fallback for match highlight colour
 
-proc tomlEscapeBasicString(s: string): string =
-  ## Escape a string for TOML basic-string context.
-  result = newStringOfCap(s.len)
-  for ch in s:
-    case ch
-    of '\\':
-      result.add "\\\\"
-    of '\"':
-      result.add "\\\""
-    of '\b':
-      result.add "\\b"
-    of '\t':
-      result.add "\\t"
-    of '\n':
-      result.add "\\n"
-    of '\f':
-      result.add "\\f"
-    of '\r':
-      result.add "\\r"
-    else:
-      if ord(ch) < 0x20:
-        result.add "\\u00" & toHex(ord(ch), 2)
-      else:
-        result.add ch
-
 proc applyTheme*(cfg: var Config; name: string) =
   ## Set theme fields from `ctx.themeList` by name; respect explicit match color.
   let fallbackMatch = if baseMatchFgColorHex.len > 0:
@@ -76,115 +51,16 @@ proc applyThemeAndColors*(cfg: var Config; name: string; doNotify = true;
   if doRedraw:
     gui.redrawWindow()
 
-## Split a TOML line at the first comment marker outside a quoted string.
-proc splitTomlComment(line: string): tuple[code, comment: string] =
-  var quote = '\0'
-  var escaped = false
-  for i, ch in line:
-    if quote == '"' and escaped:
-      escaped = false
-    elif quote == '"' and ch == '\\':
-      escaped = true
-    elif quote == '\0' and (ch == '"' or ch == '\''):
-      quote = ch
-    elif quote == ch:
-      quote = '\0'
-    elif quote == '\0' and ch == '#':
-      return (line[0..<i], line[i..^1])
-  (line, "")
-
-## Normalize a bare or simply quoted TOML key for comparison.
-proc normalizedTomlKey(value: string): string =
-  result = value.strip()
-  if result.len >= 2 and
-      ((result[0] == '"' and result[^1] == '"') or
-       (result[0] == '\'' and result[^1] == '\'')):
-    result = result[1..^2]
-
-## Return a simple TOML table or array-table name, or empty for other lines.
-proc tomlSectionName(code: string): string =
-  let stripped = code.strip()
-  if stripped.len >= 4 and stripped.startsWith("[[") and
-      stripped.endsWith("]]"):
-    return normalizedTomlKey(stripped[2..^3])
-  if stripped.len >= 2 and stripped[0] == '[' and stripped[^1] == ']':
-    return normalizedTomlKey(stripped[1..^2])
-  ""
-
-## Safely update or insert theme.last_chosen while preserving other text.
-proc saveLastTheme*(cfgPath: string): bool =
-  let escapedTheme = tomlEscapeBasicString(ctx.config.themeName)
-  let lastChosenLine = "last_chosen = \"" & escapedTheme & "\""
-  var lines: seq[string]
+## Persist the selected theme separately from user-authored configuration.
+proc saveLastTheme*(): bool =
+  let path = cacheDir() / "theme"
   try:
-    lines = readFile(cfgPath).splitLines()
-  except IOError, OSError:
-    let e = getCurrentException()
-    stderr.writeLine "saveLastTheme warning: unable to read " & cfgPath &
-        " (" & $e.name & "): " & e.msg
-    return false
-
-  var output: seq[string] = @[]
-  var inTheme = false
-  var updated = false
-  var themeSectionFound = false
-  for line in lines:
-    let (code, comment) = splitTomlComment(line)
-    let section = tomlSectionName(code)
-    if section.len > 0:
-      if inTheme and not updated:
-        output.add(lastChosenLine)
-        updated = true
-      inTheme = section == "theme"
-      if inTheme:
-        themeSectionFound = true
-
-    let eq = code.find('=')
-    if inTheme and eq > 0 and
-        normalizedTomlKey(code[0..<eq]) == "last_chosen":
-      if not updated:
-        let indentLen = line.len - line.strip(leading = true, trailing = false).len
-        let indent = if indentLen > 0: line[0..<indentLen] else: ""
-        let suffix = if comment.len > 0: " " & comment else: ""
-        output.add(indent & lastChosenLine & suffix)
-      updated = true
-    else:
-      output.add(line)
-
-  if inTheme and not updated:
-    output.add(lastChosenLine)
-    updated = true
-  if not themeSectionFound:
-    output.add("")
-    output.add("[theme]")
-    output.add(lastChosenLine)
-    updated = true
-
-  if not updated:
-    return true
-
-  let candidate = output.join("\n") & "\n"
-  try:
-    discard toml.parseString(candidate)
-  except CatchableError as e:
-    stderr.writeLine "saveLastTheme warning: refusing invalid TOML update for " &
-        cfgPath & " (" & $e.name & "): " & e.msg
-    return false
-
-  let tempPath = cfgPath & ".tmp." & $getCurrentProcessId()
-  try:
-    writeFile(tempPath, candidate)
-    setFilePermissions(tempPath, getFilePermissions(cfgPath))
-    moveFile(tempPath, cfgPath)
+    createDir(path.parentDir)
+    writeFile(path, ctx.config.themeName & "\n")
     true
   except IOError, OSError:
     let e = getCurrentException()
-    if fileExists(tempPath):
-      try:
-        removeFile(tempPath)
-      except CatchableError:
-        discard
-    stderr.writeLine "saveLastTheme warning: unable to write " & cfgPath &
+    stderr.writeLine "saveLastTheme warning: unable to write " & path &
         " (" & $e.name & "): " & e.msg
     false
 
@@ -436,6 +312,16 @@ proc initLauncherConfig*() =
       lastName = themeTbl.getOrDefault("last_chosen").getStr("")
     except CatchableError:
       stderr.writeLine "NimLaunch warning: ignoring invalid [theme] section in " & cfgPath
+  let savedThemePath = cacheDir() / "theme"
+  if fileExists(savedThemePath):
+    try:
+      let savedName = readFile(savedThemePath).strip()
+      if savedName.len > 0:
+        lastName = savedName
+    except IOError, OSError:
+      let e = getCurrentException()
+      stderr.writeLine "NimLaunch warning: unable to read " & savedThemePath &
+          " (" & $e.name & "): " & e.msg
   var pickedIndex = -1
   if lastName.len > 0:
     for i, th in ctx.themeList:
@@ -452,7 +338,7 @@ proc initLauncherConfig*() =
     baseMatchFgColorHex = ctx.config.matchFgColorHex
   applyTheme(ctx.config, chosen)
   if configValid and chosen != lastName:
-    discard saveLastTheme(cfgPath)
+    discard saveLastTheme()
 
   ## guard rails for ctx.config values that affect layout/search limits
   ctx.config.winWidth = clamp(ctx.config.winWidth, 200, 4000)

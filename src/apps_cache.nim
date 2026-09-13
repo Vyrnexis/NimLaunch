@@ -33,11 +33,11 @@ proc tryExecState(path: string): string =
     discard
   ""
 
-proc desktopDirFingerprint(dir: string): tuple[newest: int64; signature: string] =
+proc desktopDirFingerprint(dir: string): string =
   ## Build a lightweight fingerprint for *.desktop files under *dir*.
   ## Includes newest mtime, file count, summed mtimes, and summed file sizes.
   if not dirExists(dir):
-    return (0'i64, "0:0:0:0")
+    return "0:0:0:0"
   var newest = 0'i64
   var count = 0'i64
   var sumMtime = 0'i64
@@ -63,19 +63,16 @@ proc desktopDirFingerprint(dir: string): tuple[newest: int64; signature: string]
   tryExecStates.sort()
   let pathHash = hash(paths)
   let tryExecHash = hash(tryExecStates)
-  (newest, $count & ":" & $newest & ":" & $sumMtime & ":" & $sumSize &
-      ":" & $pathHash & ":" & $tryExecHash)
+  $count & ":" & $newest & ":" & $sumMtime & ":" & $sumSize &
+      ":" & $pathHash & ":" & $tryExecHash
 
 proc loadApplications*() =
   ## Scan .desktop files with caching to ~/.cache/nimlaunch/apps.json.
   let appDirs = applicationDirs()
   let environmentSignature = parsingEnvironmentSignature()
-  var dirMtimes: seq[int64] = @[]
   var dirSignatures: seq[string] = @[]
   for dir in appDirs:
-    let fp = desktopDirFingerprint(dir)
-    dirMtimes.add fp.newest
-    dirSignatures.add fp.signature
+    dirSignatures.add desktopDirFingerprint(dir)
 
   let cacheBase = cacheDir()
   let cacheFile = cacheBase / "apps.json"
@@ -87,10 +84,8 @@ proc loadApplications*() =
         let c = to(node, CacheData)
         if c.formatVersion == CacheFormatVersion and
            c.environmentSignature == environmentSignature and
-           c.appDirs == appDirs and c.dirMtimes == dirMtimes and
-           c.dirSignatures == dirSignatures:
+           c.appDirs == appDirs and c.dirSignatures == dirSignatures:
           ctx.allApps = c.apps
-          ctx.filteredApps = @[]
           ctx.matchSpans = @[]
           return
       else:
@@ -119,14 +114,12 @@ proc loadApplications*() =
 
   ctx.allApps = apps
   ctx.allApps.sort(proc(a, b: DesktopApp): int = cmpIgnoreCase(a.name, b.name))
-  ctx.filteredApps = @[]
   ctx.matchSpans = @[]
   try:
     createDir(cacheBase)
     writeFile(cacheFile, $ %CacheData(formatVersion: CacheFormatVersion,
                                       environmentSignature: environmentSignature,
                                       appDirs: appDirs,
-                                      dirMtimes: dirMtimes,
                                       dirSignatures: dirSignatures,
                                       apps: ctx.allApps))
   except IOError, OSError:

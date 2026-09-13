@@ -46,22 +46,23 @@ Then:
 
 ## Persisted Theme
 
-The active saved theme is tracked separately:
+The configuration provides the initial theme:
 
 ```toml
 [theme]
 last_chosen = "Nord"
 ```
 
-When a theme is accepted through the `:t` selector, NimLaunch writes that value back to the configuration file.
+Accepted selections are stored in `$XDG_CACHE_HOME/nimlaunch/theme` (normally
+`~/.cache/nimlaunch/theme`) without rewriting the user-authored configuration.
 
 ## Troubleshooting Theme Persistence
 
 Common causes if a theme change does not persist:
-- The configuration file is not writable.
+
+- The cache directory is not writable.
 - The configuration file contains invalid TOML syntax.
-- The configuration cannot be updated after an unavailable saved theme is reset
-  to the first configured theme.
+- The saved theme no longer exists in the configured theme list.
 
 If the TOML is invalid, NimLaunch prints a startup parse warning and falls back to built-in defaults for that session.
 

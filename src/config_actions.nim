@@ -13,8 +13,7 @@ proc loadConfigFiles*() =
       if fn.len == 0: continue
       ctx.configFilesCache.add DesktopApp(
         name: fn,
-        exec: path,
-        hasIcon: false
+        exec: path
       )
     ctx.configFilesLoaded = true
   except CatchableError as e:

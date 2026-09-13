@@ -14,19 +14,15 @@ type
 
   ## A secondary action declared in a .desktop file.
   DesktopEntryAction* = object
-    id*: string
     name*: string
-    nameLower*: string
     exec*: string
     icon*: string
-    hasIcon*: bool
 
   ## A single launchable application parsed from a `.desktop` file.
   DesktopApp* = object
     name*, nameLower*, exec*, desktopFile*: string
     desktopId*, workingDir*: string
     icon*: string
-    hasIcon*: bool
     desktopActions*: seq[DesktopEntryAction]
 
   ## Payload cached to `~/.cache/nimlaunch/apps.json`.
@@ -34,7 +30,6 @@ type
     formatVersion*: int
     environmentSignature*: string
     appDirs*: seq[string]
-    dirMtimes*: seq[int64]
     dirSignatures*: seq[string]
     apps*: seq[DesktopApp]
 
@@ -118,11 +113,6 @@ type
     powerMode*: PowerActionMode = pamTerminal
     stayOpen*: bool = false
 
-  ## Lightweight row metadata for rendering the results list.
-  DisplayRow* = object
-    text*: string
-    iconName*: string
-
   VimCommandState* = object
     prefix*: string
     buffer*: string
@@ -147,7 +137,6 @@ type
   AppContext* = object
     config*: Config
     allApps*: seq[DesktopApp]
-    filteredApps*: seq[DisplayRow]
     inputText*: string
     lastInputChangeMs*: int64
     selectedIndex*: int
@@ -178,17 +167,6 @@ type
     actions*: seq[Action]
 
 var ctx*: AppContext
-ctx.configFilesLoaded = false
-ctx.configFilesCache = @[]
-ctx.themePreviewActive = false
-ctx.dmenuMode = false
-ctx.dmenuItems = @[]
-ctx.dmenuAccepted = false
-ctx.dmenuPrompt = ""
-ctx.listThemesMode = false
-ctx.dryRunMode = false
-ctx.verboseMode = false
-ctx.configOverridePath = ""
 
 # ── Constants ───────────────────────────────────────────────────────────
 const

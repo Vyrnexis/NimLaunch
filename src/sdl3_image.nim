@@ -9,9 +9,6 @@ elif defined(macosx):
 else:
   const ImgLibName* = "libSDL3_image.so.0"
 
-proc loadTexture*(renderer: Renderer; file: cstring): Texture {.
-    importc: "IMG_LoadTexture", cdecl, dynlib: ImgLibName.}
-
 proc loadSizedSvg*(src: IOStream; width, height: cint): ptr Surface {.
     importc: "IMG_LoadSizedSVG_IO", cdecl, dynlib: ImgLibName.}
 

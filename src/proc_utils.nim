@@ -21,15 +21,18 @@ proc tryStart(candidates: seq[(string, seq[string])]): bool =
       discard
   false
 
-proc openPathWithDefault*(path: string): bool =
-  ## Open a file with the system default handler; fall back to common editors.
-  let absPath = absolutePath(path)
-  if not fileExists(absPath): return false
+proc openPathWithFallback*(path: string): bool =
+  ## Open a file or directory with its default handler, then try common editors.
+  let absPath = absolutePath(path.expandTilde())
+  if not (fileExists(absPath) or dirExists(absPath)):
+    return false
 
   ## Preferred system openers
   if tryStart(@[(findExe("xdg-open"), @[absPath]),
                (findExe("gio"), @["open", absPath])]):
     return true
+  if dirExists(absPath):
+    return false
 
   ## Respect user editor preference
   var envCandidates: seq[(string, seq[string])] = @[]
@@ -70,19 +73,6 @@ proc openPathWithDefault*(path: string): bool =
   if tryStart(fallbackCandidates):
     return true
 
-  false
-
-proc openPathWithFallback*(path: string): bool =
-  ## Open files or directories, falling back to xdg-open when needed.
-  let resolved = path.expandTilde()
-  if openPathWithDefault(resolved): return true
-  if dirExists(resolved) or fileExists(resolved):
-    try:
-      discard startProcess("/usr/bin/env", args = @["xdg-open", resolved],
-          options = {poDaemon})
-      return true
-    except CatchableError:
-      stderr.writeLine "openPathWithFallback failed: " & resolved
   false
 
 proc chooseTerminal*(): string =

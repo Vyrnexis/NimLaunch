@@ -6,11 +6,9 @@ import ./paths
 const
   SearchDebounceMs* = 240 # debounce for s: while typing (unified)
   SearchFdCap* = 800      # cap external search results from fd/locate
-  SearchShowCap* = 250    # cap items we score per rebuild
   SearchCacheMax* = 6     # keep a small cache of recent queries
 
 static:
-  doAssert SearchFdCap >= SearchShowCap
   doAssert SearchCacheMax > 0
 
 var
@@ -150,10 +148,6 @@ proc scanFilesFastInternal(query: string; generation: int): seq[string] =
 
   except CatchableError as e:
     stderr.writeLine "scanFilesFast warning: " & $e.name & ": " & e.msg
-
-proc scanFilesFast*(query: string): seq[string] =
-  ## Run a standalone synchronous file search.
-  scanFilesFastInternal(query, 0)
 
 ## Process file searches away from the SDL event loop.
 proc searchWorker() {.thread.} =

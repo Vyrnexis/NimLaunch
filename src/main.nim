@@ -2,7 +2,7 @@ import std/[os, strutils, syncio]
 import sdl3
 import ./[state, app_core, gui, utils, settings, search, input, apps_cache, theme_session]
 
-const Version = "0.11.5"
+const Version = "0.11.6"
 
 # Print the command-line synopsis and available options.
 proc printUsage() =
@@ -188,6 +188,3 @@ proc main*() =
         stdout.write(ctx.dmenuOutput & "\n")
       quit 0
     quit 1
-
-when isMainModule:
-  main()

@@ -295,12 +295,9 @@ proc parseDesktopFile*(path: string): Option[DesktopApp] =
       if actionNoDisplay or not actionExpansion.valid:
         continue
       desktopActions.add DesktopEntryAction(
-        id: actionId,
         name: actionName,
-        nameLower: actionName.toLowerAscii(),
         exec: actionExec,
-        icon: actionIcon,
-        hasIcon: actionIcon.len > 0
+        icon: actionIcon
       )
 
     some(DesktopApp(
@@ -310,7 +307,6 @@ proc parseDesktopFile*(path: string): Option[DesktopApp] =
       desktopFile: path,
       workingDir: workingDir,
       icon: icon,
-      hasIcon: icon.len > 0,
       desktopActions: desktopActions
     ))
   else:

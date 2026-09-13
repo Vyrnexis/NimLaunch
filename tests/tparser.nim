@@ -82,9 +82,7 @@ Icon=tab-new
     check app.desktopFile == tmp
     check app.workingDir == "/tmp"
     check app.icon == "superapp-icon"
-    check app.hasIcon == true
     check app.desktopActions.len == 1
-    check app.desktopActions[0].id == "NewTab"
     check app.desktopActions[0].name == "New Tab"
     check app.desktopActions[0].exec == "superapp --new-tab"
 
