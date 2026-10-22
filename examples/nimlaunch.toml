@@ -1,412 +1,293 @@
-# ==========================
-# NimLaunch Configuration
-# ==========================
-# Example NimLaunch configuration.
-# Copy this to ~/.config/nimlaunch/nimlaunch.toml and adjust it for your system.
-# All settings are optional — if removed, defaults will be used.
-# Colors must be in HEX format (e.g. "#RRGGBB").
+# NimLaunch example configuration
+#
+# Install:   mkdir -p ~/.config/nimlaunch && cp examples/nimlaunch.toml ~/.config/nimlaunch/
+# Scripts:   mkdir -p ~/.config/nimlaunch/scripts && cp examples/scripts/*.sh ~/.config/nimlaunch/scripts/
+#
+# Every key is optional; anything you delete falls back to its default.
+# Colours are "#RRGGBB". Restart NimLaunch after editing.
+# Reference: docs/configuration.md, docs/groups-and-shortcuts.md, docs/dmenu.md.
+
+# ── Window ──────────────────────────────────────────────────────────────────
 
 [window]
-width = 500                       # Width of the launcher window in pixels
-opacity = 1.0                     # Window opacity (0.1 - 1.0); requires SDL support
-max_visible_items = 10            # Number of items visible at once (affects height)
-center = true                     # true: center window horizontally; false: use position_x/position_y
-position_x = 20                   # X position in pixels when center=false
-position_y = 500                  # Y position in pixels when center=false
-vertical_align = "one-third"      # Only used when center=true; "top", "center", or "one-third"
-display = 0                       # Display index when center=true (0 = primary)
+width = 560                    # pixels
+opacity = 1.0                  # 0.1 - 1.0; some compositors ignore it
+max_visible_items = 8          # rows shown before the list scrolls
+center = true                  # false: use position_x / position_y instead
+vertical_align = "one-third"   # when centred: "top", "center" or "one-third"
+display = 0                    # monitor index when centred
 
 [font]
-fontname = "Dejavu:size=16"       # Font name & size (e.g., "Font Family:size=N")
+fontname = "Noto Sans:size=15" # fontconfig-style "Family:size=N"
 
 [input]
-prompt = "> "                     # Prompt prefix shown before your query
-cursor = "_"                      # Cursor character displayed after query text
-vim_mode = false                  # true enables Vim-style modes/hjkl navigation
+prompt = "> "
+cursor = "_"
+vim_mode = false               # true: Esc / hjkl navigation
 
 [terminal]
-program = "gnome-terminal"        # Replace this with your preferred terminal
+program = "kitty"              # used by :r, ! and terminal-mode shortcuts
 
 [border]
-width = 2                         # Border thickness in pixels (0 = no border)
+width = 2                      # 0 removes the border
 
 [icons]
-enabled = true                    # Set to false to hide icons in the list
+enabled = true
 
-# ==========================
-# Shortcuts
-# ==========================
-# Define custom prefix triggers. Each shortcut supports:
-#   prefix  = letters you trigger with ':' (e.g. ':g')
-#   label   = text shown before your query in the results list
-#   base    = template containing optional {query} placeholder
-#   mode    = "url" (default), "shell", or "file"
-#   group   = optional group name (e.g. "sys")
-#   run_mode = "terminal" (default) or "spawn" for shell commands
-#   stay_open = true keeps NimLaunch open after running the action
-
-[[shortcuts]]
-prefix = ":g"
-label  = "Search Google: "
-base   = "https://www.google.com/search?q={query}"
-mode   = "url"
-
-[[shortcuts]]
-prefix = ":w"
-label  = "Search Wiki: "
-base   = "https://en.wikipedia.org/wiki/Special:Search?search={query}"
-mode   = "url"
-
-[[shortcuts]]
-prefix = ":y"
-label  = "Search YouTube: "
-base   = "https://www.youtube.com/results?search_query={query}"
-mode   = "url"
-
-[[shortcuts]]
-prefix = ":man"
-label  = "Man page search: "
-base   = "https://man.archlinux.org/search?q={query}"
-mode   = "url"
-
-# ==========================
-# Groups
-# ==========================
-# Define group names used by [[shortcuts]].
-# query_mode = "filter" (default) or "pass".
-
-[[groups]]
-name = "sys"
-query_mode = "filter"
+# ── Groups ──────────────────────────────────────────────────────────────────
+# A group used by a shortcut below is created automatically in "filter" mode:
+# `:sys re` narrows the group to entries matching "re". A [[groups]] block is
+# only needed for "pass" mode, where the text after the group is handed to the
+# chosen shortcut as {query} instead of filtering the list.
 
 [[groups]]
 name = "svc"
 query_mode = "pass"
 
-[[groups]]
-name = "dev"
-query_mode = "pass"
-
-[[groups]]
-name = "ss"
-query_mode = "filter"
-
-[[groups]]
-name = "proj"
-query_mode = "filter"
-
-[[groups]]
-name = "media"
-query_mode = "filter"
-
-# ==========================
-# Grouped shortcuts
-# ==========================
+# ── Prefix shortcuts (mode = "url" is the default) ──────────────────────────
+# `:g nim language` opens the search in your browser. {query} is percent-encoded
+# for URLs; without {query} the text is appended to `base`.
 
 [[shortcuts]]
-group     = "svc"
-label     = "systemctl status: "
-base      = "systemctl status {query}"
-mode      = "shell"
+prefix = ":g"
+label  = "Search Google: "
+base   = "https://www.google.com/search?q={query}"
 
 [[shortcuts]]
-group     = "svc"
-label     = "systemctl show: "
-base      = "systemctl show {query}"
-mode      = "shell"
+prefix = ":w"
+label  = "Search Wikipedia: "
+base   = "https://en.wikipedia.org/wiki/Special:Search?search={query}"
 
 [[shortcuts]]
-group     = "svc"
-label     = "systemctl cat: "
-base      = "systemctl cat {query}"
-mode      = "shell"
+prefix = ":aur"
+label  = "Search the AUR: "
+base   = "https://aur.archlinux.org/packages?K={query}"
 
 [[shortcuts]]
-group     = "svc"
-label     = "journalctl -u (this boot): "
-base      = "journalctl -u {query} -b"
-mode      = "shell"
+prefix = ":gh"
+label  = "Search GitHub: "
+base   = "https://github.com/search?q={query}&type=repositories"
+
+# ── Shell shortcuts ─────────────────────────────────────────────────────────
+# {query} is shell-quoted for you: never wrap it in quotes yourself.
+
+# run_mode = "spawn" runs in the background, no terminal window.
+# `:n buy milk` appends a line to ~/quick-notes.txt.
+[[shortcuts]]
+prefix   = ":n"
+label    = "Quick note: "
+base     = "echo {query} >> ~/quick-notes.txt"
+mode     = "shell"
+run_mode = "spawn"
+
+# The default run_mode = "terminal" opens the command in [terminal] program.
+# `:ssh myserver` connects in a new terminal.
+[[shortcuts]]
+prefix = ":ssh"
+label  = "SSH to: "
+base   = "ssh {query}"
+mode   = "shell"
+
+# The script takes the expression as arguments: `:calc 2*(3+4)`.
+[[shortcuts]]
+prefix   = ":calc"
+label    = "Calculate: "
+base     = "bash ~/.config/nimlaunch/scripts/nimlaunch_calculator.sh {query}"
+mode     = "shell"
+run_mode = "spawn"
+
+# ── File shortcuts ──────────────────────────────────────────────────────────
+# mode = "file" opens a path with the default handler. `:dl report.pdf`
+[[shortcuts]]
+prefix = ":dl"
+label  = "Open from Downloads: "
+base   = "~/Downloads/{query}"
+mode   = "file"
+
+# ── Group: sys (filter) ─────────────────────────────────────────────────────
+# Type `:sys`, then a few letters. The power menu script asks before it
+# reboots or shuts down, so those are left to it.
 
 [[shortcuts]]
-group     = "svc"
-label     = "journalctl -u (recent errors): "
-base      = "journalctl -u {query} -xe"
-mode      = "shell"
-
-
-
-[[shortcuts]]
-group     = "dev"
-label     = "Nim docs: "
-base      = "https://nim-lang.org/docs/lib.html"
-mode      = "url"
+group    = "sys"
+label    = "Lock"
+base     = "loginctl lock-session"
+mode     = "shell"
+run_mode = "spawn"
 
 [[shortcuts]]
-group     = "dev"
-label     = "GitHub code search: "
-base      = "https://github.com/search?q={query}&type=code"
-mode      = "url"
+group    = "sys"
+label    = "Suspend"
+base     = "systemctl suspend"
+mode     = "shell"
+run_mode = "spawn"
 
 [[shortcuts]]
-group     = "dev"
-label     = "Arch Wiki: "
-base      = "https://wiki.archlinux.org/index.php?search={query}"
-mode      = "url"
+group    = "sys"
+label    = "Power Menu"
+base     = "bash ~/.config/nimlaunch/scripts/nimlaunch_power.sh"
+mode     = "shell"
+run_mode = "spawn"
 
-[[shortcuts]]
-group     = "ss"
-label     = "Screenshot area -> clipboard"
-base      = "grim -g \"$(slurp)\" - | wl-copy"
-mode      = "shell"
-run_mode  = "spawn"
-
-[[shortcuts]]
-group     = "ss"
-label     = "Screenshot area -> save"
-base      = "mkdir -p ~/Pictures/Screenshots && grim -g \"$(slurp)\" ~/Pictures/Screenshots/$(date '+%Y-%m-%d_%H-%M-%S').png"
-mode      = "shell"
-run_mode  = "spawn"
-
-[[shortcuts]]
-group     = "ss"
-label     = "Full screenshot -> clipboard"
-base      = "grim - | wl-copy"
-mode      = "shell"
-run_mode  = "spawn"
-
-[[shortcuts]]
-group     = "ss"
-label     = "Full screenshot -> save"
-base      = "mkdir -p ~/Pictures/Screenshots && grim ~/Pictures/Screenshots/$(date '+%Y-%m-%d_%H-%M-%S').png"
-mode      = "shell"
-run_mode  = "spawn"
+# ── Group: media (filter, stay_open) ────────────────────────────────────────
+# stay_open = true keeps NimLaunch open after the action, so you can press
+# Enter again and again to step the volume.
 
 [[shortcuts]]
 group     = "media"
-label     = "Audio Sink"
-base      = "bash ~/.config/nimlaunch/scripts/nimlaunch_audio.sh"
+label     = "Volume up"
+base      = "wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+"
 mode      = "shell"
 run_mode  = "spawn"
-
-# ==========================================
-# Showcase Scripts
-# ==========================================
-# Make sure you have the required dependencies installed (e.g., jq, bc, cliphist, nmcli)
-# and copy the `examples/scripts/` folder to `~/.config/nimlaunch/scripts/`.
+stay_open = true
 
 [[shortcuts]]
-prefix    = ":m"
-label     = "Calculate: "
-base      = "res=$(echo {query} | bc -l); echo \"$res\" | wl-copy; notify-send 'Calculator' \"Result: $res\" -i accessories-calculator"
+group     = "media"
+label     = "Volume down"
+base      = "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
 mode      = "shell"
 run_mode  = "spawn"
-stay_open = false
+stay_open = true
 
 [[shortcuts]]
-group     = "scripts"
-label     = "Window Switcher"
-base      = "bash ~/.config/nimlaunch/scripts/nimlaunch_windows.sh"
-mode      = "shell"
-run_mode  = "spawn"
-stay_open = false
+group    = "media"
+label    = "Mute toggle"
+base     = "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
+mode     = "shell"
+run_mode = "spawn"
+
+# ── Group: svc (pass) ───────────────────────────────────────────────────────
+# `:svc sshd` lists these actions with "sshd" filled in; pick one to run it.
 
 [[shortcuts]]
-group     = "scripts"
-label     = "Steam Games"
-base      = "bash ~/.config/nimlaunch/scripts/nimlaunch_steam.sh"
-mode      = "shell"
-run_mode  = "spawn"
-stay_open = false
+group = "svc"
+label = "systemctl status: "
+base  = "systemctl status {query}"
+mode  = "shell"
 
 [[shortcuts]]
-group     = "scripts"
-label     = "Clipboard Manager (Hyprland)"
-base      = "bash ~/.config/nimlaunch/scripts/nimlaunch_cliphist.sh"
-mode      = "shell"
-run_mode  = "spawn"
-stay_open = false
+group = "svc"
+label = "journalctl this boot: "
+base  = "journalctl -u {query} -b"
+mode  = "shell"
 
 [[shortcuts]]
-group     = "scripts"
-label     = "Clipboard Manager (KDE Klipper)"
-base      = "bash ~/.config/nimlaunch/scripts/nimlaunch_klipper.sh"
-mode      = "shell"
-run_mode  = "spawn"
-stay_open = false
+group = "svc"
+label = "systemctl cat: "
+base  = "systemctl cat {query}"
+mode  = "shell"
+
+# ── Group: proj (filter, file mode) ─────────────────────────────────────────
 
 [[shortcuts]]
-group     = "scripts"
-label     = "WiFi Network Manager"
-base      = "bash ~/.config/nimlaunch/scripts/nimlaunch_wifi.sh"
-mode      = "shell"
-run_mode  = "spawn"
-stay_open = false
+group = "proj"
+label = "NimLaunch"
+base  = "~/Projects/NimLaunch"
+mode  = "file"
 
 [[shortcuts]]
-group     = "scripts"
-label     = "Bluetooth Manager"
-base      = "bash ~/.config/nimlaunch/scripts/nimlaunch_bluetooth.sh"
-mode      = "shell"
-run_mode  = "spawn"
-stay_open = false
+group = "proj"
+label = "Dotfiles"
+base  = "~/.config"
+mode  = "file"
+
+# ── Group: ss (screenshots, filter) ─────────────────────────────────────────
+# The script's menu is below under "scripts"; these skip the menu.
 
 [[shortcuts]]
-group     = "sys"
-label     = "Power Menu"
-base      = "bash ~/.config/nimlaunch/scripts/nimlaunch_power.sh"
-mode      = "shell"
-run_mode  = "spawn"
-stay_open = false
+group    = "ss"
+label    = "Area to clipboard"
+base     = "bash ~/.config/nimlaunch/scripts/nimlaunch_screenshot.sh area clipboard"
+mode     = "shell"
+run_mode = "spawn"
 
 [[shortcuts]]
-group     = "proj"
-label     = "NimLaunch repo"
-base      = "~/Projects/YourName/NimLaunch"
-mode      = "file"
+group    = "ss"
+label    = "Full screen to file"
+base     = "bash ~/.config/nimlaunch/scripts/nimlaunch_screenshot.sh full file"
+mode     = "shell"
+run_mode = "spawn"
+
+# ── Group: scripts (dmenu integrations) ─────────────────────────────────────
+# Each script opens its own NimLaunch menu through `nimlaunch --dmenu`.
+# Copy them first (see the top of this file); each one lists its dependencies.
+# Type `:scripts` for the whole list. See docs/dmenu.md and examples/README.md.
 
 [[shortcuts]]
-group     = "proj"
-label     = "Blog repo"
-base      = "~/Projects/YourName/your-site-or-blog"
-mode      = "file"
+group    = "scripts"
+label    = "dmenu Showcase"
+base     = "bash ~/.config/nimlaunch/scripts/nimlaunch_showcase.sh"
+mode     = "shell"
+run_mode = "spawn"
 
-# ==========================
-# Run commands
-# ==========================
-# Use `:r` (or `!`) to execute shell commands directly without a custom shortcut.
+[[shortcuts]]
+group    = "scripts"
+label    = "Audio Output"
+base     = "bash ~/.config/nimlaunch/scripts/nimlaunch_audio.sh"
+mode     = "shell"
+run_mode = "spawn"
 
-# ==========================
-# Themes
-# ==========================
-# Add or remove [[themes]] blocks to customize appearance.
-# The "name" field is what you'll see in the `:t` theme selector.
-# Colors:
-#   bgColorHex          = Window background
-#   fgColorHex          = Normal text color
-#   highlightBgColorHex = Background of selected/highlighted item
-#   highlightFgColorHex = Text color of selected/highlighted item
-#   borderColorHex      = Window border color
-#   matchFgColorHex     = Color for matching characters in search results
+[[shortcuts]]
+group    = "scripts"
+label    = "Bluetooth"
+base     = "bash ~/.config/nimlaunch/scripts/nimlaunch_bluetooth.sh"
+mode     = "shell"
+run_mode = "spawn"
+
+[[shortcuts]]
+group    = "scripts"
+label    = "Calculator"
+base     = "bash ~/.config/nimlaunch/scripts/nimlaunch_calculator.sh"
+mode     = "shell"
+run_mode = "spawn"
+
+[[shortcuts]]
+group    = "scripts"
+label    = "Clipboard History"
+base     = "bash ~/.config/nimlaunch/scripts/nimlaunch_clipboard.sh"
+mode     = "shell"
+run_mode = "spawn"
+
+[[shortcuts]]
+group    = "scripts"
+label    = "Screenshot"
+base     = "bash ~/.config/nimlaunch/scripts/nimlaunch_screenshot.sh"
+mode     = "shell"
+run_mode = "spawn"
+
+[[shortcuts]]
+group    = "scripts"
+label    = "Steam Games"
+base     = "bash ~/.config/nimlaunch/scripts/nimlaunch_steam.sh"
+mode     = "shell"
+run_mode = "spawn"
+
+[[shortcuts]]
+group    = "scripts"
+label    = "Wi-Fi"
+base     = "bash ~/.config/nimlaunch/scripts/nimlaunch_wifi.sh"
+mode     = "shell"
+run_mode = "spawn"
+
+[[shortcuts]]
+group    = "scripts"
+label    = "Window Switcher"
+base     = "bash ~/.config/nimlaunch/scripts/nimlaunch_windows.sh"
+mode     = "shell"
+run_mode = "spawn"
+
+# ── Themes ──────────────────────────────────────────────────────────────────
+# 84 themes are built in: browse them with `:t` or `nimlaunch --list-themes`.
+# A [[themes]] block adds a theme, or replaces a built-in one of the same name.
 #
-# Tip: You can quickly preview themes in-app with the `t:` command.
-
-[[themes]]
-name                = "Default"
-bgColorHex          = "#2E3440"
-fgColorHex          = "#D8DEE9"
-highlightBgColorHex = "#88C0D0"
-highlightFgColorHex = "#2E3440"
-borderColorHex      = "#8BE9FD"
-matchFgColorHex     = "#f8c291"
-
-[[themes]]
-name                = "Ayu Dark"
-bgColorHex          = "#0F1419"
-fgColorHex          = "#BFBDB6"
-highlightBgColorHex = "#59C2FF"
-highlightFgColorHex = "#0F1419"
-borderColorHex      = "#1F2328"
-matchFgColorHex     = ""
-
-[[themes]]
-name                = "Ayu Light"
-bgColorHex          = "#FAFAFA"
-fgColorHex          = "#5C6773"
-highlightBgColorHex = "#399EE6"
-highlightFgColorHex = "#FAFAFA"
-borderColorHex      = "#F0F0F0"
-matchFgColorHex     = ""
-
-[[themes]]
-name                = "Catppuccin Frappe"
-bgColorHex          = "#303446"
-fgColorHex          = "#C6D0F5"
-highlightBgColorHex = "#8CAAEE"
-highlightFgColorHex = "#303446"
-borderColorHex      = "#414559"
-matchFgColorHex     = ""
-
-[[themes]]
-name                = "Catppuccin Latte"
-bgColorHex          = "#EFF1F5"
-fgColorHex          = "#4C4F69"
-highlightBgColorHex = "#1E66F5"
-highlightFgColorHex = "#EFF1F5"
-borderColorHex      = "#BCC0CC"
-matchFgColorHex     = ""
-
-[[themes]]
-name                = "Catppuccin Macchiato"
-bgColorHex          = "#24273A"
-fgColorHex          = "#CAD3F5"
-highlightBgColorHex = "#8AADF4"
-highlightFgColorHex = "#24273A"
-borderColorHex      = "#363A4F"
-matchFgColorHex     = ""
-
-[[themes]]
-name                = "Catppuccin Mocha"
-bgColorHex          = "#1E1E2E"
-fgColorHex          = "#CDD6F4"
-highlightBgColorHex = "#89B4FA"
-highlightFgColorHex = "#1E1E2E"
-borderColorHex      = "#313244"
-matchFgColorHex     = ""
-
-[[themes]]
-name                = "Dracula"
-bgColorHex          = "#282A36"
-fgColorHex          = "#F8F8F2"
-highlightBgColorHex = "#BD93F9"
-highlightFgColorHex = "#282A36"
-borderColorHex      = "#44475A"
-matchFgColorHex     = ""
-
-[[themes]]
-name                = "GitHub Dark"
-bgColorHex          = "#0D1117"
-fgColorHex          = "#E6EDF3"
-highlightBgColorHex = "#388BFD"
-highlightFgColorHex = "#0D1117"
-borderColorHex      = "#30363D"
-matchFgColorHex     = ""
-
-[[themes]]
-name                = "GitHub Light"
-bgColorHex          = "#FFFFFF"
-fgColorHex          = "#1F2328"
-highlightBgColorHex = "#0969DA"
-highlightFgColorHex = "#FFFFFF"
-borderColorHex      = "#D1D9E0"
-matchFgColorHex     = ""
-
-[[themes]]
-name                = "Gruvbox Dark"
-bgColorHex          = "#282828"
-fgColorHex          = "#EBDBB2"
-highlightBgColorHex = "#83A598"
-highlightFgColorHex = "#282828"
-borderColorHex      = "#3C3836"
-matchFgColorHex     = ""
-
-[[themes]]
-name                = "Gruvbox Light"
-bgColorHex          = "#FBF1C7"
-fgColorHex          = "#3C3836"
-highlightBgColorHex = "#83A598"
-highlightFgColorHex = "#FBF1C7"
-borderColorHex      = "#EBDBB2"
-matchFgColorHex     = ""
-
-[[themes]]
-name                = "Nord"
-bgColorHex          = "#2E3440"
-fgColorHex          = "#D8DEE9"
-highlightBgColorHex = "#88C0D0"
-highlightFgColorHex = "#2E3440"
-borderColorHex      = "#4C566A"
-matchFgColorHex     = ""
-
+# [[themes]]
+# name                = "My Theme"
+# bgColorHex          = "#111111"   # window background
+# fgColorHex          = "#f0f0f0"   # normal text
+# highlightBgColorHex = "#2a2a2a"   # selected row background
+# highlightFgColorHex = "#ffffff"   # selected row text
+# borderColorHex      = "#555555"
+# matchFgColorHex     = "#ff8c42"   # matched characters (optional)
 
 [theme]
-last_chosen = "Default"
+last_chosen = "Default"        # updated when you pick a theme with :t
