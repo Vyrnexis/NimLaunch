@@ -10,8 +10,6 @@ These are declared in
 
 ## Shortcut Fields
 
-Each `[[shortcuts]]` block supports the following fields:
-
 ```toml
 [[shortcuts]]
 prefix = ":g"
@@ -20,17 +18,21 @@ base   = "https://www.google.com/search?q={query}"
 mode   = "url"
 ```
 
-- **`prefix`**: The text typed to trigger the shortcut. Surrounding colons are optional; names are normalized to lowercase.
-- **`label`**: The text shown in the UI before your query.
-- **`base`**: The URL, shell command, or file path template.
-- **`mode`**: The action type: `url` (default), `shell`, or `file`.
-- **`group`**: An optional group name to attach this shortcut to (e.g., `sys` or `media`).
-- **`run_mode`**: For shell actions, specifies `terminal` (default) or `spawn`.
-- **`stay_open`**: If `true`, NimLaunch remains open after a successful shortcut action.
+| Field | Default | Meaning |
+| ----- | ------- | ------- |
+| `prefix` | | Trigger typed after `:`. Leading/trailing `:` are optional and case is ignored, so `":g"`, `"g"`, `"g:"` and `"G"` are the same. Ignored when `group` is set |
+| `group` | | Attach the shortcut to a group instead of giving it its own prefix |
+| `label` | | Text shown in the results list |
+| `base` | required | URL, shell command or path, with an optional `{query}` placeholder |
+| `mode` | `"url"` | `"url"`, `"shell"` or `"file"`; any other value means `url` |
+| `run_mode` | `"terminal"` | Shell mode only: `"terminal"` runs in your terminal, `"spawn"` runs in the background with no terminal |
+| `stay_open` | `false` | Keep NimLaunch open after the action succeeds (any mode) |
+
+A shortcut needs `base` and either a `prefix` or a `group`; otherwise it is
+skipped. The built-in prefixes `s`, `c`, `t`, `r`, `q` and `quit` always win
+over a shortcut with the same name.
 
 ## Prefix Shortcuts
-
-Prefix shortcuts are designed for direct command-style actions.
 
 ```toml
 [[shortcuts]]
@@ -42,19 +44,22 @@ mode   = "url"
 
 Usage: `:w nim language`
 
-The `{query}` placeholder is replaced with the typed query text. Without the
-placeholder, the query is appended directly, so include any required separator
-at the end of `base`.
+### The `{query}` placeholder
 
-> **Note on Shell Commands:** When `mode = "shell"`, NimLaunch automatically wraps `{query}` in shell-safe single quotes to prevent command injection. Do not wrap `{query}` in quotes in your configuration file.
+Text after the prefix replaces every `{query}` in `base`. If `base` has no
+placeholder, the query is appended to the end, so end `base` with any needed
+separator. How the query is inserted depends on `mode`:
 
-URL queries are percent-encoded, shell queries are shell-quoted, and file
-queries are inserted as paths before `~` expansion.
+| Mode | Query inserted as |
+| ---- | ----------------- |
+| `url` | URL-encoded |
+| `shell` | Shell-quoted for you (do not add quotes around `{query}`) |
+| `file` | Raw text; `~` is expanded afterwards |
 
 ## Shortcut Modes
 
 ### URL
-Opens a browser or URL handler.
+Opens the URL with your default handler.
 
 ```toml
 [[shortcuts]]
@@ -65,7 +70,8 @@ mode   = "url"
 ```
 
 ### Shell
-Runs a command. Use `run_mode = "spawn"` when the command should run directly in the background without opening a terminal window.
+Runs `base` as a shell command. With `run_mode = "terminal"` (default) it opens
+in your terminal; with `run_mode = "spawn"` it runs in the background.
 
 ```toml
 [[shortcuts]]
@@ -77,7 +83,8 @@ run_mode = "terminal"
 ```
 
 ### File
-Opens a file or path through the default system handler.
+Opens a file or directory with the default handler. The path must exist after
+`~` expansion, otherwise NimLaunch shows "Not found" and stays open.
 
 ```toml
 [[shortcuts]]
@@ -87,17 +94,16 @@ base   = "~/Documents/{query}"
 mode   = "file"
 ```
 
+
 ## Groups
 
-Groups act as named collections for shortcuts, allowing a single prefix to expose a menu of related actions.
+A group is a named menu of shortcuts reached with one prefix (`:sys`). Give a
+shortcut a `group` and it joins that group; its own `prefix` is ignored. Group
+names are lowercased.
 
-**Important:** Group definitions are completely optional. If you assign a shortcut to a group (e.g., `group = "scripts"`), NimLaunch automatically registers that group and uses the default `filter` behavior.
-
-The only time you must explicitly declare a `[[groups]]` block is when you want to change its `query_mode` from `"filter"` to `"pass"`.
-
-### Example: Implicit Filter Group
-
-You can create a group simply by referencing it in your shortcuts:
+Groups referenced by shortcuts are created automatically with the default
+`filter` behavior. A `[[groups]]` block is only needed to set
+`query_mode = "pass"`.
 
 ```toml
 [[shortcuts]]
@@ -109,25 +115,27 @@ run_mode  = "spawn"
 stay_open = false
 ```
 
-Usage: `:sys lock`
-
-Because `sys` is used as a `group` in a shortcut, NimLaunch registers it automatically as a `filter` group.
+Usage: `:sys lock`. A shortcut prefix with the same name as a group wins over the
+group.
 
 ## Group Query Modes
 
-A group can have one of two `query_mode` settings: `filter` or `pass`.
+| `query_mode` | Typed text after the group name |
+| ------------ | -------------------------------- |
+| `filter` (default) | Filters the group's entries by label (fuzzy). `{query}` is replaced with empty text when you run an entry |
+| `pass` | Is not used for filtering; it is substituted into every entry's `{query}`. Also accepted as `passthrough` or `pass-through` |
 
-### filter (Default)
+### filter
 
-NimLaunch uses the typed text to filter the items inside the group. This is the default behavior and does not require an explicit `[[groups]]` block.
-
-Typing `:sys re` narrows the group to actions matching "re" (such as "Reboot"). This is ideal when choosing between a set of fixed actions.
+`:sys re` narrows the list to entries matching "re" (such as Reboot). Use this
+for a fixed set of actions. An entry without a `label` is matched and shown by
+its `base`.
 
 ### pass
 
-The `pass` mode forwards the raw query text to the selected shortcut instead of using it to filter the menu. This is useful when the grouped action requires free-form query input.
-
-To use `pass` mode, you must explicitly declare the group in your configuration:
+Every entry is shown with the query applied, and nothing is shown until you
+type a query. Use it when the typed text is an argument. Declare the group
+explicitly:
 
 ```toml
 [[groups]]
@@ -147,9 +155,8 @@ base  = "systemctl cat {query}"
 mode  = "shell"
 ```
 
-Usage: `:svc ssh`
-
-Choosing `systemctl status: ` runs `systemctl status ssh`. This makes `pass` mode an excellent fit for read-only inspection commands or search-style actions where the input forms the arguments.
+Usage: `:svc ssh` lists both entries; choosing the first runs
+`systemctl status ssh` in your terminal.
 
 ## Related Documentation
 

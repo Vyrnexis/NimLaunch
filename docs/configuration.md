@@ -1,128 +1,152 @@
 # Configuration
 
-NimLaunch reads its configuration from
-`${XDG_CONFIG_HOME:-~/.config}/nimlaunch/nimlaunch.toml`. If the file does not
-exist, NimLaunch generates one on the first run from the embedded default
-template. If it contains invalid TOML, NimLaunch prints a parse error and uses
-built-in defaults for that session.
+NimLaunch reads `${XDG_CONFIG_HOME:-~/.config}/nimlaunch/nimlaunch.toml`, or the
+file given with `--config PATH`. If that file does not exist, NimLaunch creates
+it from the embedded template ([`src/default_config.nim`](../src/default_config.nim)).
+Restart NimLaunch after editing.
 
-Application metadata is cached under
-`${XDG_CACHE_HOME:-~/.cache}/nimlaunch`. Desktop entries are discovered using
-`XDG_DATA_HOME` and `XDG_DATA_DIRS`, with their standard defaults.
+## Files
 
-## Layout
+| Path | Purpose |
+| ---- | ------- |
+| `${XDG_CONFIG_HOME:-~/.config}/nimlaunch/nimlaunch.toml` | Your configuration |
+| `${XDG_CACHE_HOME:-~/.cache}/nimlaunch/apps.json` | Parsed `.desktop` entries |
+| `${XDG_CACHE_HOME:-~/.cache}/nimlaunch/recent.json` | Recently launched apps (up to 10) |
+| `${XDG_CACHE_HOME:-~/.cache}/nimlaunch/usage.json` | Per-app launch counts |
+| `${XDG_CACHE_HOME:-~/.cache}/nimlaunch/theme` | Last selected theme name |
+| `${XDG_CACHE_HOME:-~/.cache}/nimlaunch/nimlaunch.lock` | Single-instance lock (holds the PID) |
 
-The generated configuration is split into the following sections:
+The app cache is reused until the `.desktop` directories, the locale/`PATH`
+environment, or a `TryExec` program change; it is then rebuilt automatically.
+Deleting the cache files is always safe. Desktop entries come from
+`XDG_DATA_HOME` and `XDG_DATA_DIRS` (with their standard defaults) plus the
+Flatpak export directories.
 
-- `[window]`
-- `[font]`
-- `[input]`
-- `[terminal]`
-- `[border]`
-- `[icons]`
-- `[[groups]]`
-- `[[shortcuts]]`
-- `[[themes]]`
-- `[theme]`
+## Error handling
 
-## Window
+- **Invalid TOML:** NimLaunch prints the parse error to stderr and runs with
+  built-in defaults for that session. Your file is left untouched.
+- **Malformed section or entry:** a `[section]` with the wrong shape is ignored
+  with a warning. Invalid `[[shortcuts]]`, `[[groups]]` or `[[themes]]` entries
+  are skipped and counted in a warning.
+- **Wrong value type or missing key:** the default is used.
+- **Unknown keys and sections are ignored.** Old configs keep loading; for
+  example `pollIntervalMs` was removed (the event loop now sleeps until
+  needed) and is simply skipped.
 
-```toml
-[window]
-width = 500
-opacity = 1.0
-max_visible_items = 10
-center = true
-position_x = 20
-position_y = 500
-vertical_align = "one-third"
-display = 0
-pollIntervalMs = 10
-```
+## Keys
 
-- **`width`**: Launcher width in pixels, clamped to 200–4000.
-- **`opacity`**: Float between `0.1` and `1.0`. Note that some compositors may ignore this setting.
-- **`max_visible_items`**: Number of rows before scrolling begins; values below 1 become 1.
+Out-of-range numbers are clamped silently.
 
-The window and row height automatically expand to fit the selected font and icons. On a
-small display, NimLaunch reduces the number of visible rows while keeping every row fully
-selectable.
+### `[window]`
 
-- **`center`**: If `true`, NimLaunch ignores `position_x` and centers the window.
-- **`position_x`**, **`position_y`**: Used only when `center` is `false`.
-- **`vertical_align`**: Used only when centered. Valid values are `top`, `center`, and `one-third`.
-- **`display`**: Monitor index used when centered; negative values become 0.
-- **`pollIntervalMs`**: Sleep duration in milliseconds per event loop, clamped to 1–1000. A higher value lowers CPU usage but decreases responsiveness (default: 10).
+| Key | Type | Default | Range / values | Notes |
+| --- | ---- | ------- | -------------- | ----- |
+| `width` | int | `500` | 200–4000 | Window width in pixels |
+| `opacity` | float | `1.0` | 0.1–1.0 | Some compositors ignore it |
+| `max_visible_items` | int | `10` | 1–100 | Rows shown before scrolling; reduced on small displays |
+| `center` | bool | `true` | | `false` uses `position_x` / `position_y` |
+| `position_x` | int | `20` | | Only when `center = false` |
+| `position_y` | int | `500` | | Only when `center = false` |
+| `vertical_align` | string | `"one-third"` | `"top"`, `"center"`, `"one-third"` | Only when `center = true` |
+| `display` | int | `0` | ≥ 0 | Monitor index (0 = primary); negative becomes 0 |
 
-## Font
+Row and window height follow the font and icon size automatically. Wayland
+compositors may ignore `position_x` / `position_y`; see
+[Start Menu Mode](#advanced-start-menu-mode).
 
-```toml
-[font]
-fontname = "Dejavu:size=16"
-```
+### `[font]`
 
-This uses a fontconfig-style string. Use an installed font family and size.
+| Key | Type | Default | Notes |
+| --- | ---- | ------- | ----- |
+| `fontname` | string | `"Dejavu:size=16"` | Fontconfig-style `"Family:size=N"`, e.g. `"JetBrains Mono:size=15"` |
 
-Examples:
-- `fontname = "Noto Sans:size=14"`
-- `fontname = "JetBrains Mono:size=15"`
+### `[input]`
 
-## Input
+| Key | Type | Default | Notes |
+| --- | ---- | ------- | ----- |
+| `prompt` | string | `"> "` | Shown before the query |
+| `cursor` | string | `"_"` | Shown after the query |
+| `vim_mode` | bool | `false` | Vim-style navigation and command bar |
 
-```toml
-[input]
-prompt = "> "
-cursor = "_"
-vim_mode = false
-```
+The input line scrolls horizontally to keep the cursor visible, and long result
+labels are truncated with `…`.
 
-- **`prompt`**: Prefix shown before the active query.
-- **`cursor`**: Cursor glyph shown after the query.
-- **`vim_mode`**: Enables Vim-style movement and command handling.
+### `[terminal]`
 
-## Terminal
+| Key | Type | Default | Notes |
+| --- | ---- | ------- | ----- |
+| `program` | string | `"gnome-terminal"` | Terminal for `:r`, `!`, `Terminal=true` apps and `run_mode = "terminal"` shortcuts. May include arguments |
 
-```toml
-[terminal]
-program = "gnome-terminal"
-```
+If `program` is not installed, NimLaunch tries `$TERMINAL`, then `kitty`,
+`alacritty`, `wezterm`, `foot`, `gnome-terminal`, `konsole`, `xfce4-terminal`,
+`xterm`.
 
-Specifies the terminal emulator used by `:r` and `!` commands. Set this to your preferred terminal (e.g., `kitty`, `foot`, or `gnome-terminal`).
+### `[border]`
 
-## Border
+| Key | Type | Default | Range | Notes |
+| --- | ---- | ------- | ----- | ----- |
+| `width` | int | `2` | 0–64 | Pixels; `0` disables the border. Reduced further if it would not fit |
 
-```toml
-[border]
-width = 2
-```
+### `[icons]`
 
-Specifies the border width in pixels. It is clamped to 0–64 and reduced further
-when necessary to fit the window. Set it to `0` to disable the border.
+| Key | Type | Default | Notes |
+| --- | ---- | ------- | ----- |
+| `enabled` | bool | `true` | `false` hides icons |
 
-## Icons
+Icons follow your icon theme (`ICON_THEME` environment variable, then
+gsettings, then GTK `settings.ini`) and its `Inherits` chain, then `hicolor`,
+pixmaps, and other installed themes. PNG and SVG load through `SDL3_image`.
 
-```toml
-[icons]
-enabled = true
-```
+### `[theme]`
 
-NimLaunch resolves icons from standard desktop and icon-theme locations, loading PNG and SVG icons through `SDL3_image`.
+| Key | Type | Default | Notes |
+| --- | ---- | ------- | ----- |
+| `last_chosen` | string | `"Default"` | Initial theme, matched case-insensitively. The `theme` cache file takes priority once you pick a theme with `:t`. An unknown name falls back to the first theme (`Default`) |
+
+### `[[themes]]`
+
+Optional, repeatable. Adds a theme or overrides a built-in one of the same
+name. Fields (`name`, `bgColorHex`, `fgColorHex`, `highlightBgColorHex`,
+`highlightFgColorHex`, `borderColorHex`, `matchFgColorHex`) are described in
+[Themes](themes.md).
+
+### `[[groups]]`
+
+| Key | Type | Default | Values |
+| --- | ---- | ------- | ------ |
+| `name` | string | required | Group name (lowercased) |
+| `query_mode` | string | `"filter"` | `"filter"`, or `"pass"` (also `"passthrough"`, `"pass-through"`) |
+
+Only needed for `query_mode = "pass"`; groups used by shortcuts are created
+automatically. See [Groups and Shortcuts](groups-and-shortcuts.md).
+
+### `[[shortcuts]]`
+
+| Key | Type | Default | Values |
+| --- | ---- | ------- | ------ |
+| `prefix` | string | | Trigger name; leading/trailing `:` optional, case-insensitive. Ignored when `group` is set |
+| `group` | string | | Attach to a group instead of a prefix (lowercased) |
+| `label` | string | | Text shown in the results list |
+| `base` | string | required | URL, command or path; optional `{query}` placeholder |
+| `mode` | string | `"url"` | `"url"`, `"shell"`, `"file"` (anything else means `url`) |
+| `run_mode` | string | `"terminal"` | `"terminal"`, `"spawn"` (shell mode only) |
+| `stay_open` | bool | `false` | Keep NimLaunch open after the action |
+
+An entry without `base`, or with neither `prefix` nor `group`, is skipped.
+Details in [Groups and Shortcuts](groups-and-shortcuts.md).
 
 ## Themes
 
-Theme structure, selection, persistence, and custom theme examples are detailed in [Themes](themes.md).
+There are 84 built-in themes (`:t`, `nimlaunch --list-themes`). The generated
+config contains no theme blocks. See [Themes](themes.md).
 
-## Generated Defaults
+## Related documentation
 
-The embedded template used for first-run generation is located in [`src/default_config.nim`](../src/default_config.nim). This template serves as the reference for the generated configuration, default groups, default shortcuts, and bundled themes.
-
-The checked-in [example config](../examples/nimlaunch.toml) provides a richer public sample built from the same format.
-
-## Related Documentation
-
-- [Themes](themes.md)
 - [Groups and Shortcuts](groups-and-shortcuts.md)
+- [Themes](themes.md)
 - [Dmenu Mode](dmenu.md)
+- [Example config](../examples/nimlaunch.toml) and [examples/README.md](../examples/README.md)
 
 ## Advanced: Start Menu Mode
 
