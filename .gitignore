@@ -1,15 +1,20 @@
+# Build output
+/bin/
+/nimcache/
+/nimlaunch
+/src/nimlaunch
+
+# Nimble local state
 nimble.develop
 nimble.paths
-nimbledeps
-/nimcache/
-nimlaunch
+nimbledeps/
+
+# Compiled test binaries (sources stay tracked)
+tests/*
+!tests/*.nim
+
+# Local tooling and scratch files
 .agents/
-release_notes.md
 release_notes*
-tests/t*
-!tests/t*.nim
-bin/t*
-/bin/nimcache-*/
-/bin/nimlaunch
 logs_*
 *.log
