@@ -1,7 +1,8 @@
 ## parser.nim — helpers for reading `.desktop` files
 ## Mostly identical to NimLaunch, minus X11 dependencies.
 
-import std/[os, strutils, streams, tables, options]
+import std/[os, strutils, streams, tables, options, sequtils]
+from std/unicode import toLower
 import ./state # DesktopApp
 
 # ── Internal helpers ────────────────────────────────────────────────────
@@ -97,12 +98,6 @@ proc expandExecArgs*(exec: string; name = ""; icon = "";
       result.args.setLen(0)
       result.valid = false
       return
-
-proc stripFieldCodes*(s: string): string =
-  ## Remove Desktop Entry field codes for command identity comparisons.
-  let expanded = expandExecArgs(s)
-  if expanded.valid:
-    result = expanded.args.join(" ")
 
 proc isEnvAssign(tok: string): bool =
   ## True if token is an environment assignment (e.g., FOO=bar).
@@ -216,12 +211,15 @@ proc splitDesktopList(value: string): seq[string] =
 
 # ── .desktop parser ─────────────────────────────────────────────────────
 
-proc parseDesktopFile*(path: string): Option[DesktopApp] =
+proc parseDesktopFile*(path: string; tryExecOut: var string): Option[DesktopApp] =
   ## Parse *path* and return `some(DesktopApp)` if launchable; otherwise `none`.
+  ## *tryExecOut* receives the `TryExec` value (empty when absent), even when
+  ## the entry is excluded because that program is missing.
   ## Criteria:
   ##   • has Name & Exec
   ##   • NoDisplay=false
-  ##   • Terminal=false
+  ##   • Terminal=true entries are kept and flagged via `DesktopApp.terminal`
+  tryExecOut.setLen(0)
   let fs = newFileStream(path, fmRead)
   if fs.isNil:
     return none(DesktopApp)
@@ -257,6 +255,8 @@ proc parseDesktopFile*(path: string): Option[DesktopApp] =
         actionSections[actionId][key] = value
 
   let name = getBestValue(kv, "Name")
+  let genericName = getBestValue(kv, "GenericName")
+  let keywords = splitDesktopList(getBestValue(kv, "Keywords"))
   let exec = kv.getOrDefault("Exec", "")
   let icon = kv.getOrDefault("Icon", "")
   let workingDir = kv.getOrDefault("Path", "")
@@ -267,6 +267,7 @@ proc parseDesktopFile*(path: string): Option[DesktopApp] =
   let execExpansion = expandExecArgs(exec, name, icon, path)
 
   let tryExec = kv.getOrDefault("TryExec", "")
+  tryExecOut = tryExec
   var tryExecMissing = false
   if tryExec.len > 0:
     let absPath = findExe(tryExec)
@@ -275,8 +276,7 @@ proc parseDesktopFile*(path: string): Option[DesktopApp] =
 
   let launchable =
     entryType == "Application" and name.len > 0 and exec.len > 0 and
-    execExpansion.valid and not noDisplay and not hidden and not terminalApp and
-    not tryExecMissing
+    execExpansion.valid and not noDisplay and not hidden and not tryExecMissing
 
   if launchable:
     var desktopActions: seq[DesktopEntryAction] = @[]
@@ -302,12 +302,22 @@ proc parseDesktopFile*(path: string): Option[DesktopApp] =
 
     some(DesktopApp(
       name: name,
-      nameLower: name.toLowerAscii(),
+      nameLower: toLower(name),
+      genericName: genericName,
+      genericLower: toLower(genericName),
+      keywords: keywords,
+      keywordsLower: keywords.mapIt(toLower(it)),
       exec: exec,
       desktopFile: path,
       workingDir: workingDir,
       icon: icon,
+      terminal: terminalApp,
       desktopActions: desktopActions
     ))
   else:
     none(DesktopApp)
+
+proc parseDesktopFile*(path: string): Option[DesktopApp] =
+  ## Parse *path* without reporting its `TryExec` value.
+  var tryExec = ""
+  parseDesktopFile(path, tryExec)

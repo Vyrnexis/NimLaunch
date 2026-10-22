@@ -71,6 +71,7 @@ task test, "Run all test suites":
   exec "nim c -r --nimcache:./bin/nimcache-tconfig -o:./bin/tconfig tests/tconfig.nim"
   exec "nim c -r --nimcache:./bin/nimcache-tutils -o:./bin/tutils tests/tutils.nim"
   exec "nim c -r --nimcache:./bin/nimcache-tlogic -o:./bin/tlogic tests/tlogic.nim"
+  exec "nim c -r --nimcache:./bin/nimcache-ticons -o:./bin/ticons tests/ticons.nim"
 
 task clean, "Remove build artifacts and caches":
   rmDir("bin")

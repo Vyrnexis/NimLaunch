@@ -17,11 +17,6 @@ suite "Parser tests":
     let toks = tokenize("cmd \"hello \\\"world\\\"\"")
     check toks == @["cmd", "hello \"world\""]
 
-  test "stripFieldCodes":
-    check stripFieldCodes("code %F") == "code"
-    check stripFieldCodes("foo %u %i %c") == "foo"
-    check stripFieldCodes("100%% sure") == "100% sure"
-
   test "expand Desktop Entry field codes":
     let expanded = expandExecArgs("viewer %F %i --name=%c %k %%",
         "My App", "my-icon", "/tmp/my-app.desktop")
@@ -95,13 +90,22 @@ Icon=tab-new
     writeFile(tmp, "[Desktop Entry]\nName=HiddenApp\nExec=hiddenapp\nNoDisplay=true\n")
     check isNone(parseDesktopFile(tmp))
 
-    # Terminal=true
-    writeFile(tmp, "[Desktop Entry]\nName=TerminalApp\nExec=htop\nTerminal=true\n")
-    check isNone(parseDesktopFile(tmp))
-
     # Unknown field codes invalidate the entry.
     writeFile(tmp, "[Desktop Entry]\nName=InvalidApp\nExec=invalid %x\n")
     check isNone(parseDesktopFile(tmp))
+
+  test "Terminal=true applications are kept and flagged":
+    let tmp = getTempDir() / "nimlaunch_test_terminal.desktop"
+    defer:
+      if fileExists(tmp): removeFile(tmp)
+
+    writeFile(tmp, "[Desktop Entry]\nName=TerminalApp\nExec=htop\nTerminal=true\n")
+    let parsed = parseDesktopFile(tmp)
+    check isSome(parsed)
+    check get(parsed).terminal
+
+    writeFile(tmp, "[Desktop Entry]\nName=PlainApp\nExec=plain\nTerminal=false\n")
+    check not get(parseDesktopFile(tmp)).terminal
 
   test "categories do not control application visibility":
     let tmp = getTempDir() / "nimlaunch_test_categories.desktop"
@@ -116,3 +120,49 @@ Icon=tab-new
     writeFile(tmp,
         "[Desktop Entry]\nName=SystemApp\nExec=system-monitor\nCategories=System;\n")
     check isSome(parseDesktopFile(tmp))
+
+  test "GenericName and Keywords are parsed with lowercase forms":
+    let tmp = getTempDir() / "nimlaunch_test_keywords.desktop"
+    defer:
+      if fileExists(tmp): removeFile(tmp)
+
+    writeFile(tmp, "[Desktop Entry]\nName=Éditeur\nGenericName=Web Browser\n" &
+        "Keywords=Internet; WWW ;Navigateur;;\nExec=editor\n")
+    let app = get(parseDesktopFile(tmp))
+    check app.nameLower == "éditeur"
+    check app.genericName == "Web Browser"
+    check app.genericLower == "web browser"
+    check app.keywords == @["Internet", "WWW", "Navigateur"]
+    check app.keywordsLower == @["internet", "www", "navigateur"]
+
+  test "missing GenericName and Keywords stay empty":
+    let tmp = getTempDir() / "nimlaunch_test_no_keywords.desktop"
+    defer:
+      if fileExists(tmp): removeFile(tmp)
+
+    writeFile(tmp, "[Desktop Entry]\nName=Plain\nExec=plain\n")
+    let app = get(parseDesktopFile(tmp))
+    check app.genericName.len == 0
+    check app.keywords.len == 0
+    check app.keywordsLower.len == 0
+
+  test "localized GenericName and Keywords are preferred":
+    let hadLcAll = existsEnv("LC_ALL")
+    let oldLcAll = getEnv("LC_ALL")
+    let tmp = getTempDir() / "nimlaunch_test_localized_keywords.desktop"
+    defer:
+      if hadLcAll: putEnv("LC_ALL", oldLcAll)
+      else: delEnv("LC_ALL")
+      if fileExists(tmp): removeFile(tmp)
+
+    writeFile(tmp, "[Desktop Entry]\nName=Browser\nGenericName=Web Browser\n" &
+        "GenericName[fr]=Navigateur Web\nKeywords=Internet;\n" &
+        "Keywords[fr]=Internet;Navigateur;Web;\nExec=browser\n")
+    putEnv("LC_ALL", "fr_FR.UTF-8")
+    let french = get(parseDesktopFile(tmp))
+    check french.genericName == "Navigateur Web"
+    check french.keywords == @["Internet", "Navigateur", "Web"]
+    putEnv("LC_ALL", "C")
+    let fallback = get(parseDesktopFile(tmp))
+    check fallback.genericName == "Web Browser"
+    check fallback.keywords == @["Internet"]

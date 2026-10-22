@@ -107,19 +107,31 @@ proc appendShellArgs*(argv: var seq[string]; shExe: string; shArgs: seq[string])
   argv.add shExe
   for a in shArgs: argv.add a
 
-proc buildTerminalArgs*(base: string; termArgs: seq[string]; shExe: string;
-                       shArgs: seq[string]): seq[string] =
-  ## Normalize command-line to launch a shell inside major terminals.
+proc terminalCommandArgs*(base: string; termArgs, command: seq[string];
+                          wezSeparator = false): seq[string] =
+  ## Place `command` after the terminal-specific separator for major terminals.
+  ## `wezSeparator` adds `--` after `wezterm start` so option-like arguments survive.
   var argv = termArgs
   case base
   of "gnome-terminal", "kgx":
     argv.add "--"
+  of "xfce4-terminal":
+    argv.add "-x"
   of "wezterm":
     argv = @["start"] & argv
+    if wezSeparator:
+      argv.add "--"
   else:
     argv.add "-e"
-  appendShellArgs(argv, shExe, shArgs)
+  argv.add command
   argv
+
+proc buildTerminalArgs*(base: string; termArgs: seq[string]; shExe: string;
+                       shArgs: seq[string]): seq[string] =
+  ## Normalize command-line to launch a shell inside major terminals.
+  var command: seq[string] = @[]
+  appendShellArgs(command, shExe, shArgs)
+  terminalCommandArgs(base, termArgs, command)
 
 proc buildShellCommand*(cmd, shExe: string; hold = false):
     tuple[fullCmd: string; shArgs: seq[string]] =
@@ -158,6 +170,36 @@ proc runCommand*(cmd: string): bool =
     true
   except CatchableError as e:
     stderr.writeLine "runCommand failed: " & cmd & " (" & $e.name & "): " & e.msg
+    false
+
+proc spawnInTerminal*(args: seq[string]; workingDir = ""): bool =
+  ## Run `args` directly (no shell, no hold prompt) inside the user's terminal.
+  if args.len == 0:
+    return false
+  if workingDir.len > 0 and not dirExists(workingDir):
+    stderr.writeLine "spawnInTerminal failed: working directory not found: " & workingDir
+    return false
+
+  let parts = tokenize(chooseTerminal())
+  if parts.len == 0:
+    stderr.writeLine "spawnInTerminal failed: No terminal emulator configured or found."
+    return false
+
+  let exe = parts[0]
+  let exePath = findExe(exe)
+  if exePath.len == 0:
+    stderr.writeLine "spawnInTerminal failed: Terminal emulator '" & exe & "' not found."
+    return false
+
+  let termArgs = if parts.len > 1: parts[1..^1] else: @[]
+  let argv = terminalCommandArgs(exe.extractFilename(), termArgs, args,
+                                 wezSeparator = true)
+  try:
+    discard startProcess(exePath, args = argv, workingDir = workingDir,
+                         options = {poDaemon, poParentStreams})
+    true
+  except CatchableError as e:
+    stderr.writeLine "spawnInTerminal failed: " & args[0] & " (" & $e.name & "): " & e.msg
     false
 
 proc spawnShellCommand*(cmd: string): bool =

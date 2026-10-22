@@ -1,20 +1,49 @@
 ## icon_resolver.nim — XDG icon discovery and resolution logic
+##
+## Follows the freedesktop Icon Theme Specification: themes are described by their
+## `index.theme`, searched in preference order (including `Inherits=`), and each theme
+## is searched for an exact size match before falling back to the closest size.
 
-import std/[os, strutils, osproc, algorithm, streams]
+import std/[os, strutils, osproc, algorithm, streams, tables, sequtils]
 
 const
-  IconSearchSizes = [16, 20, 22, 24, 32, 48, 64, 96, 128, 192, 256, 512]
   FallbackIconThemes = ["papirus", "papirus-dark", "adwaita", "adwaita-dark",
-                        "breeze", "breeze-dark", "hicolor"]
+                        "breeze", "breeze-dark"]
+  HicolorTheme = "hicolor"
+  IconExts = [".png", ".svg", ".xpm"]
+  DefaultIconSize = 16
+  IconScale = 1
+
+type
+  DirKind = enum
+    dkFixed, dkScalable, dkThreshold
+
+  ThemeDir = object
+    size, scale, minSize, maxSize, threshold: int
+    kind: DirKind
+    symbolic: bool
+    paths: seq[string]  ## Existing on-disk directories, one per base dir.
+
+  IconTheme = object
+    name: string
+    inherits: seq[string]
+    dirs: seq[ThemeDir]
+
+  SymbolicMode = enum
+    smPlain, smSymbolicOnly, smAny
 
 var
-  iconSearchPathsReady {.threadvar.}: bool
-  iconThemeDirsCache {.threadvar.}: seq[string]
-  iconPixmapRootsCache {.threadvar.}: seq[string]
-  preferredIconThemesCache {.threadvar.}: seq[string]
+  resolverReady {.threadvar.}: bool
+  preferredThemes {.threadvar.}: seq[string]
+  themeLocations {.threadvar.}: Table[string, seq[string]]
+  pixmapDirs {.threadvar.}: seq[string]
+  themeChain {.threadvar.}: seq[IconTheme]
+  iconCache {.threadvar.}: Table[string, string]
+  otherThemes {.threadvar.}: seq[IconTheme]
+  otherThemesReady {.threadvar.}: bool
 
 # -------------------
-# Icon resolution
+# Theme preference
 # -------------------
 proc appendUniquePath(dst: var seq[string]; path: string) =
   if path.len == 0:
@@ -81,23 +110,20 @@ proc detectThemeFromGtkSettings(): string =
   ""
 
 proc initPreferredIconThemes() =
-  if preferredIconThemesCache.len > 0:
-    return
-
   for theme in [getEnv("ICON_THEME"), detectThemeFromGSettings(),
       detectThemeFromGtkSettings()]:
     if theme.len == 0:
       continue
-    appendUniqueTheme(preferredIconThemesCache, theme)
+    appendUniqueTheme(preferredThemes, theme)
     let lower = theme.toLowerAscii
     if lower.endsWith("-dark"):
-      appendUniqueTheme(preferredIconThemesCache, theme[0 ..< theme.len - 5])
+      appendUniqueTheme(preferredThemes, theme[0 ..< theme.len - 5])
     else:
-      appendUniqueTheme(preferredIconThemesCache, theme & "-dark")
+      appendUniqueTheme(preferredThemes, theme & "-dark")
 
-  for theme in FallbackIconThemes:
-    appendUniqueTheme(preferredIconThemesCache, theme)
-
+# -------------------
+# Base directories
+# -------------------
 proc xdgDataRoots(): seq[string] =
   let xdgDataHome = getEnv("XDG_DATA_HOME")
   if xdgDataHome.len > 0:
@@ -113,204 +139,320 @@ proc xdgDataRoots(): seq[string] =
   appendUniquePath(result, getHomeDir() / ".local/share/flatpak/exports/share")
   appendUniquePath(result, "/var/lib/flatpak/exports/share")
 
-proc initIconSearchPaths() =
-  if iconSearchPathsReady:
-    return
-  initPreferredIconThemes()
-
-  var iconRoots: seq[string] = @[]
-  appendUniquePath(iconRoots, getHomeDir() / ".icons")
-
-  for root in xdgDataRoots():
-    let iconsDir = root / "icons"
-    if dirExists(iconsDir):
-      appendUniquePath(iconRoots, iconsDir)
-    let pixmapsDir = root / "pixmaps"
-    if dirExists(pixmapsDir):
-      appendUniquePath(iconPixmapRootsCache, pixmapsDir)
-
-  appendUniquePath(iconRoots, "/usr/share/icons")
-  appendUniquePath(iconPixmapRootsCache, "/usr/share/pixmaps")
-
-  for iconRoot in iconRoots:
-    if not dirExists(iconRoot):
-      continue
+proc indexThemeLocations(baseDirs: seq[string]) =
+  ## Map lowercase theme name -> theme directories (in base dir order).
+  for base in baseDirs:
     try:
-      for kind, path in walkDir(iconRoot, relative = false):
-        if kind == pcDir:
-          appendUniquePath(iconThemeDirsCache, path)
+      for kind, path in walkDir(base, relative = false):
+        if kind in {pcDir, pcLinkToDir}:
+          let key = splitPath(path).tail.toLowerAscii
+          if path notin themeLocations.mgetOrPut(key, @[]):
+            themeLocations[key].add(path)
     except CatchableError:
       discard
 
-  proc themeRank(path: string): int =
-    let name = splitPath(path).tail.toLowerAscii
-    for i, pref in preferredIconThemesCache:
-      if name == pref:
-        return i * 10
-    for i, pref in preferredIconThemesCache:
-      if name.startsWith(pref & "-"):
-        return i * 10 + 3
-    if name.contains("legacy"):
-      return 800
-    if name.contains("highcontrast"):
-      return 900
-    200
+# -------------------
+# index.theme parsing
+# -------------------
+proc parseIniFile(path: string): Table[string, Table[string, string]] =
+  var section = ""
+  try:
+    for rawLine in lines(path):
+      let line = rawLine.strip()
+      if line.len == 0 or line[0] in {'#', ';'}:
+        continue
+      if line[0] == '[' and line[^1] == ']':
+        section = line[1 ..< line.len - 1]
+        discard result.mgetOrPut(section, initTable[string, string]())
+        continue
+      let eq = line.find('=')
+      if eq <= 0 or section.len == 0:
+        continue
+      result[section][line[0 ..< eq].strip()] = line[eq + 1 .. ^1].strip()
+  except CatchableError:
+    discard
 
-  iconThemeDirsCache.sort(proc(a, b: string): int =
-    let ra = themeRank(a)
-    let rb = themeRank(b)
-    result = cmp(ra, rb)
-    if result == 0:
-      result = cmpIgnoreCase(a, b)
+proc splitList(value: string): seq[string] =
+  for part in value.split(','):
+    let item = part.strip()
+    if item.len > 0 and item notin result:
+      result.add(item)
+
+proc intValue(section: Table[string, string]; key: string; default: int): int =
+  try:
+    if key in section:
+      return parseInt(section[key])
+  except ValueError:
+    discard
+  default
+
+proc parseThemeDir(section: Table[string, string]; name: string;
+                   locations: seq[string]): ThemeDir =
+  ## Returns a dir with no paths when the section is unusable.
+  if "Size" notin section:
+    return
+  let size = intValue(section, "Size", 0)
+  result = ThemeDir(
+    size: size,
+    scale: max(1, intValue(section, "Scale", 1)),
+    minSize: intValue(section, "MinSize", size),
+    maxSize: intValue(section, "MaxSize", size),
+    threshold: intValue(section, "Threshold", 2),
+    kind: dkThreshold,
+    symbolic: name.toLowerAscii.contains("symbolic")
   )
+  case section.getOrDefault("Type").toLowerAscii
+  of "fixed":
+    result.kind = dkFixed
+  of "scalable":
+    result.kind = dkScalable
+  else:
+    discard
+  for location in locations:
+    let path = location / name
+    if dirExists(path):
+      result.paths.add(path)
 
-  iconSearchPathsReady = true
+proc loadTheme(name: string): IconTheme =
+  ## Returns a theme with an empty name when no base dir provides an index.theme.
+  let locations = themeLocations.getOrDefault(name)
+  var indexPath = ""
+  for location in locations:
+    let candidate = location / "index.theme"
+    if fileExists(candidate):
+      indexPath = candidate
+      break
+  if indexPath.len == 0:
+    return
+  let ini = parseIniFile(indexPath)
+  let header = ini.getOrDefault("Icon Theme")
+  result = IconTheme(name: name)
+  for parent in splitList(header.getOrDefault("Inherits")):
+    result.inherits.add(parent.toLowerAscii)
+  var dirNames = splitList(header.getOrDefault("Directories"))
+  for scaled in splitList(header.getOrDefault("ScaledDirectories")):
+    if scaled notin dirNames:
+      dirNames.add(scaled)
+  for dirName in dirNames:
+    if dirName notin ini:
+      continue
+    let dir = parseThemeDir(ini[dirName], dirName, locations)
+    if dir.paths.len > 0:
+      result.dirs.add(dir)
 
-proc searchIconInDir(base: string; size: int; iconName: string;
-                     includeSymbolic: bool; includeAuxGroups: bool;
-                     includeScalable: bool): string =
-  ## Search a specific base dir for size/scalable icons.
-  let iconLower = iconName.toLowerAscii
-  let hasExt = iconLower.endsWith(".png") or iconLower.endsWith(".svg") or
-      iconLower.endsWith(".xpm")
-  proc pickExisting(path: string): string =
-    if not fileExists(path):
-      return ""
-    return path
+proc addToChain(chain: var seq[IconTheme]; themeName: string) =
+  let key = themeName.strip().toLowerAscii
+  if key.len == 0 or key == HicolorTheme:
+    return
+  for theme in chain:
+    if theme.name == key:
+      return
+  let theme = loadTheme(key)
+  if theme.name.len == 0:
+    return
+  chain.add(theme)
+  for parent in theme.inherits:
+    addToChain(chain, parent)
 
-  proc checkName(name: string): string =
-    let sizeDir = $size & "x" & $size
-    let kdeSizeDir = $size
-    let primaryGroups = ["apps", "legacy"]
-    let auxGroups = ["actions", "categories", "devices", "emblems",
-                     "mimetypes", "places", "preferences", "status", "panel"]
-    var rels: seq[string] = @[]
-    for grp in primaryGroups:
-      rels.add(sizeDir / grp / name)
-      rels.add(grp / kdeSizeDir / name)
-    if includeAuxGroups:
-      for grp in auxGroups:
-        rels.add(sizeDir / grp / name)
-        rels.add(grp / kdeSizeDir / name)
-      rels.add(sizeDir / name)
-    if includeScalable:
-      for grp in primaryGroups:
-        rels.add("scalable" / grp / name)
-      if includeAuxGroups:
-        for grp in auxGroups:
-          rels.add("scalable" / grp / name)
-        rels.add("scalable" / name)
-    if includeSymbolic:
-      for grp in primaryGroups:
-        rels.add("symbolic" / grp / name)
-      if includeAuxGroups:
-        for grp in auxGroups:
-          rels.add("symbolic" / grp / name)
-        rels.add("symbolic" / name)
+proc initIconResolver() =
+  if resolverReady:
+    return
+  initPreferredIconThemes()
 
-    for rel in rels:
-      let dir = base / splitPath(rel).head
-      if dirExists(dir):
-        let hit = pickExisting(base / rel)
-        if hit.len > 0:
-          return hit
-    ""
+  var baseDirs: seq[string] = @[]
+  appendUniquePath(baseDirs, getHomeDir() / ".icons")
+  for root in xdgDataRoots():
+    appendUniquePath(baseDirs, root / "icons")
+    let pixmaps = root / "pixmaps"
+    if dirExists(pixmaps):
+      appendUniquePath(pixmapDirs, pixmaps)
+  if dirExists("/usr/share/pixmaps"):
+    appendUniquePath(pixmapDirs, "/usr/share/pixmaps")
+  indexThemeLocations(baseDirs)
 
-  if hasExt:
-    return checkName(iconName)
+  for theme in preferredThemes:
+    addToChain(themeChain, theme)
+  for theme in FallbackIconThemes:
+    addToChain(themeChain, theme)
+  let hicolor = loadTheme(HicolorTheme)
+  if hicolor.name.len > 0:
+    themeChain.add(hicolor)
 
-  for ext in [".png", ".svg", ".xpm"]:
-    let hit = checkName(iconName & ext)
+  resolverReady = true
+
+proc resetIconResolverForTests*() =
+  ## Drop all cached state so the next lookup re-reads the environment and themes.
+  resolverReady = false
+  preferredThemes = @[]
+  themeLocations = initTable[string, seq[string]]()
+  pixmapDirs = @[]
+  themeChain = @[]
+  iconCache = initTable[string, string]()
+  otherThemes = @[]
+  otherThemesReady = false
+
+# -------------------
+# Lookup
+# -------------------
+proc hasImageExt(name: string): bool =
+  let lower = name.toLowerAscii
+  lower.endsWith(".png") or lower.endsWith(".svg") or lower.endsWith(".xpm")
+
+proc matchesSize(dir: ThemeDir; size: int): bool =
+  if dir.scale != IconScale:
+    return false
+  case dir.kind
+  of dkFixed:
+    dir.size == size
+  of dkScalable:
+    size in dir.minSize .. dir.maxSize
+  of dkThreshold:
+    size in dir.size - dir.threshold .. dir.size + dir.threshold
+
+proc sizeDistance(dir: ThemeDir; size: int): int =
+  let want = size * IconScale
+  case dir.kind
+  of dkFixed:
+    abs(dir.size * dir.scale - want)
+  of dkScalable:
+    if want < dir.minSize * dir.scale:
+      dir.minSize * dir.scale - want
+    elif want > dir.maxSize * dir.scale:
+      want - dir.maxSize * dir.scale
+    else:
+      0
+  of dkThreshold:
+    if want < (dir.size - dir.threshold) * dir.scale:
+      (dir.size - dir.threshold) * dir.scale - want
+    elif want > (dir.size + dir.threshold) * dir.scale:
+      want - (dir.size + dir.threshold) * dir.scale
+    else:
+      0
+
+proc dirAllowed(dir: ThemeDir; mode: SymbolicMode): bool =
+  case mode
+  of smPlain: not dir.symbolic
+  of smSymbolicOnly: dir.symbolic
+  of smAny: true
+
+proc findInTheme(theme: IconTheme; files: seq[string]; size: int;
+                 mode: SymbolicMode): string =
+  ## Exact size matches come first (in Directories order), then the closest sizes,
+  ## preferring the larger icon on ties. Each directory is visited at most once.
+  var order: seq[tuple[group, dist, negPixels, idx: int]] = @[]
+  for i, dir in theme.dirs:
+    if not dirAllowed(dir, mode):
+      continue
+    if matchesSize(dir, size):
+      order.add((0, 0, 0, i))
+    else:
+      order.add((1, sizeDistance(dir, size), -dir.size * dir.scale, i))
+  order.sort()
+  for entry in order:
+    for path in theme.dirs[entry.idx].paths:
+      for file in files:
+        let candidate = path / file
+        if fileExists(candidate):
+          return candidate
+  ""
+
+proc findInChain(files: seq[string]; size: int; mode: SymbolicMode): string =
+  for theme in themeChain:
+    let hit = findInTheme(theme, files, size, mode)
     if hit.len > 0:
       return hit
   ""
 
-proc resolveIconPath*(iconName: string; requestedSize: int): string =
-  ## Resolve an icon name to an on-disk image path usable by SDL3_image.
-  if iconName.len == 0:
-    return ""
+proc findInOtherThemes(files: seq[string]; size: int): string =
+  ## Last resort: installed themes outside the chain, loaded on first use.
+  if not otherThemesReady:
+    otherThemesReady = true
+    var names: seq[string] = @[]
+    for key in themeLocations.keys:
+      names.add(key)
+    names.sort()
+    for key in names:
+      if key == HicolorTheme or themeChain.anyIt(it.name == key):
+        continue
+      let theme = loadTheme(key)
+      if theme.dirs.len > 0:
+        otherThemes.add(theme)
+  for theme in otherThemes:
+    let hit = findInTheme(theme, files, size, smPlain)
+    if hit.len > 0:
+      return hit
+  ""
 
-  initIconSearchPaths()
+proc fileNames(names: seq[string]): seq[string] =
+  ## Expand icon names into file names; names that already carry an extension stay as is.
+  for name in names:
+    if hasImageExt(name):
+      result.add(name)
+    else:
+      for ext in IconExts:
+        result.add(name & ext)
 
+proc findInPixmaps(files: seq[string]): string =
+  for dir in pixmapDirs:
+    for file in files:
+      let candidate = dir / file
+      if fileExists(candidate):
+        return candidate
+  ""
+
+proc lookupIcon(iconName: string; size: int): string =
   var candidates: seq[string] = @[]
   proc addCandidate(name: string) =
-    if name.len == 0:
-      return
-    if name notin candidates:
+    if name.len > 0 and name notin candidates:
       candidates.add(name)
   addCandidate(iconName)
-  let iconLower = iconName.toLowerAscii
-  if iconLower != iconName:
-    addCandidate(iconLower)
-  if iconLower.endsWith(".png") or iconLower.endsWith(".svg") or
-     iconLower.endsWith(".xpm"):
+  addCandidate(iconName.toLowerAscii)
+  if hasImageExt(iconName):
     let dot = iconName.rfind('.')
     if dot > 0:
       let stem = iconName[0 ..< dot]
       addCandidate(stem)
       addCandidate(stem.toLowerAscii)
 
+  let files = fileNames(candidates)
+  let wantsSymbolic = iconName.toLowerAscii.contains("symbolic")
+
+  # Prefer non-symbolic icons unless the requested name itself is symbolic.
+  result = findInChain(files, size, if wantsSymbolic: smAny else: smPlain)
+  if result.len == 0 and not wantsSymbolic:
+    # Last resort inside the themes: symbolic directories, then "<name>-symbolic".
+    result = findInChain(files, size, smSymbolicOnly)
+    if result.len == 0:
+      var symbolicNames: seq[string] = @[]
+      for name in candidates:
+        if not hasImageExt(name):
+          symbolicNames.add(name & "-symbolic")
+      result = findInChain(fileNames(symbolicNames), size, smAny)
+  if result.len == 0:
+    result = findInPixmaps(files)
+  if result.len == 0:
+    result = findInOtherThemes(files, size)
+
+proc resolveIconPath*(iconName: string; requestedSize: int): string =
+  ## Resolve an icon name to an on-disk image path usable by SDL3_image.
+  if iconName.len == 0:
+    return ""
+
   # If iconName is an absolute path, support direct image files and omitted extension.
   if '/' in iconName:
-    let absLower = iconName.toLowerAscii()
-    if fileExists(iconName) and (absLower.endsWith(".png") or absLower.endsWith(".svg") or
-        absLower.endsWith(".xpm")):
+    if hasImageExt(iconName) and fileExists(iconName):
       return iconName
-    for ext in [".png", ".svg", ".xpm"]:
+    for ext in IconExts:
       let p = iconName & ext
       if fileExists(p):
         return p
     return ""
 
-  # Build list of icon sizes to try:
-  # 1) requested size
-  # 2) nearest larger sizes (prefer downscaling for quality)
-  # 3) smaller sizes as fallback
-  var sizes: seq[int] = @[]
-  let req = if requestedSize > 0: requestedSize else: IconSearchSizes[0]
-  sizes.add(req)
-  for s in IconSearchSizes:
-    if s >= req and s notin sizes:
-      sizes.add(s)
-  for i in countdown(IconSearchSizes.high, 0):
-    let s = IconSearchSizes[i]
-    if s < req and s notin sizes:
-      sizes.add(s)
+  initIconResolver()
 
-  # Search all discovered icon themes under XDG roots.
-  # Prefer non-symbolic icons unless the requested name itself is symbolic.
-  for icon in candidates:
-    let wantsSymbolic = icon.toLowerAscii.contains("symbolic")
-    for includeAux in [false, true]:
-      for includeScalable in [false, true]:
-        for size in sizes:
-          for themeDir in iconThemeDirsCache:
-            let hit = searchIconInDir(themeDir, size, icon,
-                includeSymbolic = wantsSymbolic,
-                includeAuxGroups = includeAux,
-                includeScalable = includeScalable)
-            if hit.len > 0: return hit
-        if not wantsSymbolic:
-          for size in sizes:
-            for themeDir in iconThemeDirsCache:
-              let hit = searchIconInDir(themeDir, size, icon,
-                  includeSymbolic = true,
-                  includeAuxGroups = includeAux,
-                  includeScalable = includeScalable)
-              if hit.len > 0: return hit
-
-  # Search discovered pixmap roots as a last resort.
-  for icon in candidates:
-    let lower = icon.toLowerAscii
-    let hasExt = lower.endsWith(".png") or lower.endsWith(".svg") or lower.endsWith(".xpm")
-    for pixRoot in iconPixmapRootsCache:
-      if hasExt:
-        let p = pixRoot / icon
-        if fileExists(p):
-          return p
-      for ext in [".png", ".svg", ".xpm"]:
-        let p = pixRoot / (icon & ext)
-        if fileExists(p):
-          return p
-
-  result = ""
+  let size = if requestedSize > 0: requestedSize else: DefaultIconSize
+  let key = iconName & '\0' & $size
+  if key in iconCache:
+    return iconCache[key]
+  result = lookupIcon(iconName, size)
+  iconCache[key] = result

@@ -1,7 +1,7 @@
-import std/[assertions, os, osproc, unicode]
+import std/[assertions, json, os, osproc, unicode, strutils, tables, sequtils]
 import sdl3
 import ../src/[state, layout, parser, fuzzy, app_core, input, proc_utils, utils,
-    settings, apps_cache, search, gui]
+    settings, apps_cache, search, gui, paths]
 
 block font_drives_layout:
   for fontHeight in [12, 16, 24, 32, 48, 64]:
@@ -50,11 +50,144 @@ block empty_quoted_argument_is_preserved:
 
 block unicode_highlights_are_valid:
   let text = "Café 東京"
-  let spans = subseqSpans("é東", text)
+  var spans: seq[(int, int)]
+  doAssert fuzzyMatch("é東", text, "", spans) != NoMatch
   doAssert spans.len == 2
   for (start, length) in spans:
     doAssert validateUtf8(text[start..<start + length]) == -1
-  doAssert scoreMatch("É", "", "é", "", "", "") > -1_000_000
+  doAssert fuzzyScore("é", "É", "") != NoMatch
+
+proc resetSearchState() =
+  ctx.config = Config(maxVisibleItems: 10, lineHeight: 22)
+  ctx.dmenuMode = false
+  ctx.shortcuts = @[]
+  ctx.groupQueryModes.clear()
+  ctx.recentApps = @[]
+  ctx.appUsage.clear()
+  ctx.themePreviewActive = false
+
+proc testApp(name: string; genericName = ""; keywords: seq[string] = @[]): DesktopApp =
+  DesktopApp(name: name, nameLower: unicode.toLower(name), exec: name.toLowerAscii,
+      desktopId: name & ".desktop", genericName: genericName,
+      genericLower: unicode.toLower(genericName), keywords: keywords,
+      keywordsLower: keywords.mapIt(unicode.toLower(it)))
+
+proc rowNames(): seq[string] =
+  for act in ctx.actions:
+    result.add act.label
+
+block generic_name_and_keywords_rank_below_name_matches:
+  resetSearchState()
+  ctx.allApps = @[
+    testApp("Calculator"),
+    testApp("Falkon", genericName = "Web Browser"),
+    testApp("Konqueror", keywords = @["Internet", "browser"]),
+    testApp("Browser Settings"),
+    testApp("Superbrowser")]
+  ctx.inputText = "browser"
+  buildActions()
+  doAssert rowNames() == @["Browser Settings", "Superbrowser", "Konqueror", "Falkon"]
+  doAssert ctx.actions[0].spans == @[(0, 7)]
+  doAssert ctx.actions[1].spans == @[(5, 7)]
+  doAssert ctx.actions[2].spans.len == 0
+  doAssert ctx.actions[3].spans.len == 0
+  ctx.inputText = "web brow"
+  buildActions()
+  doAssert rowNames() == @["Falkon"]
+  ctx.allApps = @[]
+  ctx.inputText = ""
+
+block acronym_and_subsequence_find_apps_with_exact_highlights:
+  resetSearchState()
+  ctx.allApps = @[
+    testApp("Visual Studio Code"),
+    testApp("Firefox"),
+    testApp("Calculator")]
+  ctx.inputText = "vsc"
+  buildActions()
+  doAssert rowNames() == @["Visual Studio Code"]
+  doAssert ctx.actions[0].spans == @[(0, 1), (7, 1), (14, 1)]
+  ctx.inputText = "ffx"
+  buildActions()
+  doAssert rowNames() == @["Firefox"]
+  doAssert ctx.actions[0].spans == @[(0, 1), (4, 1), (6, 1)]
+  ctx.inputText = "fierfox"
+  buildActions()
+  doAssert rowNames() == @["Firefox"]
+  doAssert ctx.actions[0].spans.len == 1
+  ctx.inputText = "zzz"
+  buildActions()
+  doAssert ctx.actions[0].kind == akPlaceholder
+  doAssert ctx.actions[0].spans.len == 0
+  ctx.allApps = @[]
+  ctx.inputText = ""
+
+block desktop_action_rows_share_the_app_spans:
+  resetSearchState()
+  var app = testApp("Terminal")
+  app.desktopActions = @[DesktopEntryAction(name: "New Window", exec: "term -n")]
+  ctx.allApps = @[app]
+  ctx.inputText = "term"
+  buildActions()
+  doAssert ctx.actions.len == 2
+  doAssert ctx.actions[1].kind == akAppAction
+  doAssert ctx.actions[0].spans == @[(0, 4)]
+  doAssert ctx.actions[1].spans == @[(0, 4)]
+  ctx.allApps = @[]
+  ctx.inputText = ""
+
+block config_and_group_filters_use_the_matcher:
+  resetSearchState()
+  ctx.configFilesLoaded = true
+  ctx.configFilesCache = @[
+    DesktopApp(name: "init.lua", exec: "/c/init.lua"),
+    DesktopApp(name: "my-kitty.conf", exec: "/c/my-kitty.conf"),
+    DesktopApp(name: "kitty.conf", exec: "/c/kitty.conf")]
+  ctx.inputText = ":c kit"
+  buildActions()
+  doAssert rowNames() == @["kitty.conf", "my-kitty.conf"]
+  doAssert ctx.actions[0].spans == @[(0, 3)]
+  doAssert ctx.actions[1].spans == @[(3, 3)]
+  ctx.configFilesCache = @[]
+  ctx.shortcuts = @[
+    Shortcut(label: "Wikipedia", base: "u", mode: smUrl, group: "web"),
+    Shortcut(label: "Search Web", base: "u", mode: smUrl, group: "web")]
+  ctx.groupQueryModes["web"] = gqmFilter
+  ctx.inputText = ":web web"
+  buildActions()
+  doAssert rowNames() == @["Search Web"]
+  doAssert ctx.actions[0].spans == @[(7, 3)]
+  ctx.shortcuts = @[]
+  ctx.groupQueryModes.clear()
+  ctx.inputText = ""
+
+block run_and_shortcut_rows_highlight_the_typed_text:
+  resetSearchState()
+  ctx.inputText = "!ls -l"
+  buildActions()
+  doAssert ctx.actions[0].kind == akRun
+  doAssert ctx.actions[0].spans == @[(5, 5)]
+  ctx.shortcuts = @[Shortcut(prefix: "g", label: "Google", base: "u{query}", mode: smUrl)]
+  ctx.inputText = ":g cats"
+  buildActions()
+  doAssert ctx.actions[0].label == "Google cats"
+  doAssert ctx.actions[0].spans == @[(7, 4)]
+  ctx.shortcuts = @[]
+  ctx.inputText = ""
+
+block dmenu_matches_use_unicode_lowercase_and_spans:
+  resetSearchState()
+  ctx.dmenuMode = true
+  ctx.dmenuItems = @[
+    DmenuItem(label: "alpha", labelLower: "alpha"),
+    DmenuItem(label: "Éclair", labelLower: unicode.toLower("Éclair"))]
+  ctx.inputText = "ÉCL"
+  buildActions()
+  doAssert rowNames() == @["Éclair"]
+  doAssert ctx.actions[0].spans == @[(0, 4)]
+  ctx.dmenuMode = false
+  ctx.dmenuItems = @[]
+  ctx.inputText = ""
 
 block unicode_path_shortening_is_valid:
   let shortened = shortenPath("/tmp/東京/📄-résumé.txt", 12)
@@ -83,8 +216,8 @@ block same_name_apps_keep_distinct_identity:
   ctx.recentApps = @["one.desktop"]
   buildActions()
   doAssert ctx.actions.len == 2
-  doAssert appIdentity(ctx.actions[0].appData) == "one.desktop"
-  doAssert appIdentity(ctx.actions[1].appData) == "two.desktop"
+  doAssert appIdentity(ctx.allApps[ctx.actions[0].appIndex]) == "one.desktop"
+  doAssert appIdentity(ctx.allApps[ctx.actions[1].appIndex]) == "two.desktop"
 
 block shell_wrapper_accepts_trailing_syntax:
   for command in ["true;", "true &", "printf ok | cat", "true # final comment"]:
@@ -197,6 +330,59 @@ block try_exec_changes_invalidate_application_cache:
   loadApplications()
   doAssert ctx.allApps.len == 0
 
+block cache_hit_skips_scan_until_try_exec_program_appears:
+  let root = getTempDir() / "nimlaunch-tryexec-install"
+  let userData = root / "user"
+  let systemData = root / "system"
+  let cacheData = root / "cache"
+  let binDir = root / "bin"
+  createDir(userData / "applications")
+  createDir(systemData / "applications")
+  createDir(binDir)
+  defer:
+    if dirExists(root):
+      removeDir(root)
+  let oldDataHome = getEnv("XDG_DATA_HOME")
+  let oldDataDirs = getEnv("XDG_DATA_DIRS")
+  let oldCacheHome = getEnv("XDG_CACHE_HOME")
+  let oldPath = getEnv("PATH")
+  defer:
+    putEnv("XDG_DATA_HOME", oldDataHome)
+    putEnv("XDG_DATA_DIRS", oldDataDirs)
+    putEnv("XDG_CACHE_HOME", oldCacheHome)
+    putEnv("PATH", oldPath)
+  putEnv("XDG_DATA_HOME", userData)
+  putEnv("XDG_DATA_DIRS", systemData)
+  putEnv("XDG_CACHE_HOME", cacheData)
+  ## PATH is part of the cache key, so it must stay fixed during the test.
+  putEnv("PATH", binDir & ":" & oldPath)
+  writeFile(userData / "applications/plain.desktop",
+      "[Desktop Entry]\nName=Plain\nExec=plain\n")
+  writeFile(userData / "applications/later.desktop",
+      "[Desktop Entry]\nName=Later\nExec=later\nTryExec=nimlaunch-later-cmd\n")
+  loadApplications()
+  doAssert ctx.allApps.len == 1
+  doAssert ctx.allApps[0].name == "Plain"
+
+  ## An edited cache is returned verbatim only when the next load is a hit.
+  let cacheFile = cacheDir() / "apps.json"
+  let cached = parseJson(readFile(cacheFile))
+  doAssert cached["tryExecs"].len == 1
+  cached["apps"][0]["name"] = newJString("FromCache")
+  writeFile(cacheFile, $cached)
+  loadApplications()
+  doAssert ctx.allApps.len == 1
+  doAssert ctx.allApps[0].name == "FromCache"
+
+  ## Installing the TryExec program invalidates the cache and adds the entry.
+  let program = binDir / "nimlaunch-later-cmd"
+  writeFile(program, "#!/bin/sh\nexit 0\n")
+  setFilePermissions(program, {fpUserRead, fpUserWrite, fpUserExec})
+  loadApplications()
+  doAssert ctx.allApps.len == 2
+  doAssert ctx.allApps[0].name == "Later"
+  doAssert ctx.allApps[1].name == "Plain"
+
 block desktop_working_directory_reaches_spawn:
   let root = getTempDir() / "nimlaunch-working-directory"
   let output = root / "pwd.txt"
@@ -235,3 +421,118 @@ block background_search_returns_without_blocking_request:
   doAssert received
   doAssert response.generation == generation
   doAssert response.query == "nothing-matches-this-query"
+
+block quit_command_requires_activation:
+  ctx.config = Config(maxVisibleItems: 10, lineHeight: 22)
+  ctx.dmenuMode = false
+  ctx.shouldExit = false
+  ctx.shortcuts = @[Shortcut(prefix: "qr", label: "QR", base: "qrencode",
+      mode: smShell, group: "qr")]
+  ctx.groupQueryModes["qr"] = gqmFilter
+  ctx.inputText = ":q"
+  buildActions()
+  doAssert not ctx.shouldExit
+  doAssert ctx.actions.len == 1
+  doAssert ctx.actions[0].kind == akQuit
+  ctx.inputText = ":qr"
+  buildActions()
+  doAssert not ctx.shouldExit
+  doAssert ctx.actions.len == 1
+  doAssert ctx.actions[0].kind == akShortcut
+  ctx.inputText = ":q"
+  buildActions()
+  activateCurrentSelection()
+  doAssert ctx.shouldExit
+  ctx.shouldExit = false
+  ctx.shortcuts = @[]
+  ctx.groupQueryModes.clear()
+  ctx.inputText = ""
+
+block vim_mode_keeps_navigation_keys:
+  ctx.config = Config(maxVisibleItems: 10, lineHeight: 22, vimMode: true)
+  ctx.vim = VimCommandState()
+  ctx.actions = @[Action(kind: akRun, label: "one"), Action(kind: akRun, label: "two")]
+  ctx.selectedIndex = 0
+  ctx.viewOffset = 0
+  var event: Event
+  event.key.key = SDLK_DOWN
+  var focus: FocusState
+  doAssert handleKeyDown(event, focus)
+  doAssert ctx.selectedIndex == 1
+  event.key.key = SDLK_UP
+  doAssert handleKeyDown(event, focus)
+  doAssert ctx.selectedIndex == 0
+  ctx.config.vimMode = false
+  ctx.actions = @[]
+
+block home_paths_use_tilde_and_score_higher:
+  let home = getHomeDir()
+  doAssert shortenPath(home & "Documents/notes.txt") == "~/Documents/notes.txt"
+  let homeNoSlash = homeDirNoSlash()
+  doAssert not homeNoSlash.endsWith("/")
+  let depth = homeNoSlash.count('/')
+  let inHome = scoreSearchCandidate("notes", "notes", "notes.txt",
+      homeNoSlash & "/notes.txt", homeNoSlash, depth)
+  let inDocs = scoreSearchCandidate("notes", "notes", "notes.txt",
+      homeNoSlash & "/a/b/notes.txt", homeNoSlash, depth)
+  let outside = scoreSearchCandidate("notes", "notes", "notes.txt",
+      "/usr/share/notes.txt", homeNoSlash, depth)
+  doAssert inHome > inDocs
+  doAssert inDocs > outside
+
+block terminal_desktop_apps_use_terminal_argv:
+  let cmd = @["htop", "--tree"]
+  doAssert terminalCommandArgs("kitty", @[], cmd) == @["-e", "htop", "--tree"]
+  doAssert terminalCommandArgs("alacritty", @["--class", "x"], cmd) ==
+      @["--class", "x", "-e", "htop", "--tree"]
+  doAssert terminalCommandArgs("gnome-terminal", @[], cmd) == @["--", "htop", "--tree"]
+  doAssert terminalCommandArgs("xfce4-terminal", @[], cmd) == @["-x", "htop", "--tree"]
+  doAssert terminalCommandArgs("kgx", @[], cmd) == @["--", "htop", "--tree"]
+  doAssert terminalCommandArgs("wezterm", @[], cmd, wezSeparator = true) ==
+      @["start", "--", "htop", "--tree"]
+  doAssert terminalCommandArgs("wezterm", @[], cmd) == @["start", "htop", "--tree"]
+  doAssert buildTerminalArgs("kitty", @[], "/bin/sh", @["-c", "x"]) ==
+      @["-e", "/bin/sh", "-c", "x"]
+
+block dmenu_returns_typed_text_without_match:
+  ctx.config = Config(maxVisibleItems: 10, lineHeight: 22)
+  ctx.dryRunMode = false
+  ctx.dmenuMode = true
+  ctx.dmenuItems = @[DmenuItem(label: "alpha", labelLower: "alpha")]
+  ctx.dmenuAccepted = false
+  ctx.dmenuOutput = ""
+  ctx.shouldExit = false
+  ctx.inputText = "zzz-new-name"
+  buildActions()
+  doAssert ctx.actions.len == 1
+  doAssert ctx.actions[0].kind == akPlaceholder
+  activateCurrentSelection()
+  doAssert ctx.dmenuAccepted
+  doAssert ctx.dmenuOutput == "zzz-new-name"
+  doAssert ctx.shouldExit
+  # Shift+Enter returns the typed text even when a row matches.
+  ctx.dmenuAccepted = false
+  ctx.dmenuOutput = ""
+  ctx.shouldExit = false
+  ctx.inputText = "alp"
+  buildActions()
+  doAssert ctx.actions[0].kind == akDmenu
+  var event: Event
+  event.key.key = SDLK_RETURN
+  event.key.`mod` = Keymod(KMOD_SHIFT)
+  var focus: FocusState
+  doAssert handleKeyDown(event, focus)
+  doAssert ctx.dmenuOutput == "alp"
+  doAssert ctx.shouldExit
+  # Plain Enter with an empty query and no match does nothing.
+  ctx.dmenuAccepted = false
+  ctx.shouldExit = false
+  ctx.dmenuItems = @[]
+  ctx.inputText = ""
+  buildActions()
+  activateCurrentSelection()
+  doAssert not ctx.dmenuAccepted
+  doAssert not ctx.shouldExit
+  ctx.dmenuMode = false
+  ctx.dmenuItems = @[]
+  ctx.inputText = ""

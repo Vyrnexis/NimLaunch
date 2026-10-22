@@ -1,6 +1,7 @@
 ## search.nim — file search helpers and shared constants.
 
 import std/[os, strutils, osproc, streams, tables, unicode, syncio, atomics]
+import sdl3
 import ./paths
 
 const
@@ -60,8 +61,8 @@ proc getCachedSearchResults*(query: string; results: var seq[string]): bool =
 proc shortenPath*(p: string; maxLen = 80): string =
   ## Replace $HOME with ~, and ellipsize the middle if too long.
   var s = p
-  let home = getHomeDir()
-  if s.startsWith(home & "/"): s = "~" & s[home.len .. ^1]
+  let home = homeDirNoSlash()
+  if home.len > 0 and s.startsWith(home & "/"): s = "~" & s[home.len .. ^1]
   if s.runeLen <= maxLen: return s
   let keep = maxLen div 2 - 2
   if keep <= 0: return s
@@ -72,6 +73,29 @@ proc shortenPath*(p: string; maxLen = 80): string =
 proc searchCancelled(generation: int): bool =
   generation > 0 and (searchStopping.load() or
       latestRequestedGeneration.load() > generation)
+
+## Run an external finder, appending existing files to `results` (capped at SearchFdCap).
+## Returns true when the search is finished: the finder succeeded or was cancelled
+## (`results` keeps whatever was collected). On failure it warns, clears `results`
+## and returns false so the caller can try the next strategy.
+proc runFinder(exe: string; args: seq[string]; label: string; generation: int;
+    results: var seq[string]): bool =
+  let p = startProcess(exe, args = args, options = {poUsePath, poStdErrToStdOut})
+  defer: close(p)
+  var line = ""
+  var diagnostics: seq[string] = @[]
+  while p.outputStream.readLine(line):
+    if searchCancelled(generation):
+      return true
+    if line.len > 0 and results.len < SearchFdCap and fileExists(line):
+      results.add(line)
+    elif line.len > 0 and diagnostics.len < 8:
+      diagnostics.add(line)
+  if p.waitForExit() == 0:
+    return true
+  for message in diagnostics:
+    stderr.writeLine label & " warning: " & message
+  results.setLen(0)
 
 ## Search for files with cooperative cancellation for the fallback walk.
 proc scanFilesFastInternal(query: string; generation: int): seq[string] =
@@ -93,46 +117,15 @@ proc scanFilesFastInternal(query: string; generation: int): seq[string] =
         "--fixed-strings",
         "--", query, home
       ]
-      let p = startProcess(fdExe, args = args, options = {poUsePath,
-          poStdErrToStdOut})
-      defer: close(p)
-      var line = ""
-      var diagnostics: seq[string] = @[]
-      while p.outputStream.readLine(line):
-        if searchCancelled(generation):
-          return
-        if line.len > 0 and result.len < limit and fileExists(line):
-          result.add(line)
-        elif line.len > 0 and diagnostics.len < 8:
-          diagnostics.add(line)
-      let exitCode = p.waitForExit()
-      if exitCode == 0:
+      if runFinder(fdExe, args, "fd", generation, result):
         return
-      for message in diagnostics:
-        stderr.writeLine "fd warning: " & message
-      result.setLen(0)
 
     ## --- Fallback: `locate -i` -----------------------------------------
     let locExe = findExe("locate")
     if locExe.len > 0:
-      let p = startProcess(locExe, args = @["-i", "-l", $limit, "--", query],
-                           options = {poUsePath, poStdErrToStdOut})
-      defer: close(p)
-      var line = ""
-      var diagnostics: seq[string] = @[]
-      while p.outputStream.readLine(line):
-        if searchCancelled(generation):
-          return
-        if line.len > 0 and result.len < limit and fileExists(line):
-          result.add(line)
-        elif line.len > 0 and diagnostics.len < 8:
-          diagnostics.add(line)
-      let exitCode = p.waitForExit()
-      if exitCode == 0:
+      let args = @["-i", "-l", $limit, "--", query]
+      if runFinder(locExe, args, "locate", generation, result):
         return
-      for message in diagnostics:
-        stderr.writeLine "locate warning: " & message
-      result.setLen(0)
 
     ## --- Final fallback: bounded walk under $HOME -----------------------
     let ql = query.toLowerAscii
@@ -159,6 +152,9 @@ proc searchWorker() {.thread.} =
       generation: request.generation,
       query: request.query,
       paths: scanFilesFastInternal(request.query, request.generation)))
+    ## Wake the SDL event loop so it polls the response promptly.
+    var evt = Event(`type`: EVENT_USER)
+    discard pushEvent(evt)
 
 ## Start the background file-search worker once.
 proc startSearchWorker*() =

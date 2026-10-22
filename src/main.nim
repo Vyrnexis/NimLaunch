@@ -1,8 +1,19 @@
 import std/[os, strutils, syncio]
+from std/unicode import toLower
 import sdl3
-import ./[state, app_core, gui, utils, settings, search, input, apps_cache, theme_session]
+import ./[state, app_core, gui, utils, settings, search, input, apps_cache]
 
-const Version = "0.11.6"
+proc nimbleVersion(): string {.compileTime.} =
+  ## Read `version = "x.y.z"` from NimLaunch.nimble at compile time.
+  for line in staticRead("../NimLaunch.nimble").splitLines():
+    let trimmed = line.strip()
+    if trimmed.startsWith("version"):
+      return trimmed.split('"')[1]
+  "unknown"
+
+const
+  Version = nimbleVersion()
+  MaxWaitMs = 1000 ## upper bound on a single event wait
 
 # Print the command-line synopsis and available options.
 proc printUsage() =
@@ -74,28 +85,37 @@ proc loadDmenuInput() =
         let prefix = "icon\x1f"
         if remainder.startsWith(prefix):
           iconName = remainder[prefix.len .. ^1]
-      ctx.dmenuItems.add DmenuItem(label: label, labelLower: label.toLowerAscii(), iconName: iconName)
+      ctx.dmenuItems.add DmenuItem(label: label, labelLower: toLower(label), iconName: iconName)
+
+## True while an s: query is waiting for its debounce delay to elapse.
+proc searchBuildPending(): bool =
+  let (cmd, rest, _, _) = parseCommand(ctx.inputText)
+  cmd == ckSearch and rest.len >= 2 and lastSearchBuildMs < ctx.lastInputChangeMs
 
 proc processSearchDebounce(): bool =
   ## Debounce wake-up: if we're in s: search, rebuild after idle.
-  let (cmd, rest, _, _) = parseCommand(ctx.inputText)
-  if cmd != ckSearch:
-    return false
   let now = gui.nowMs()
-  let sinceEdit = now - ctx.lastInputChangeMs
-  if rest.len >= 2 and sinceEdit >= SearchDebounceMs and
-     lastSearchBuildMs < ctx.lastInputChangeMs:
+  if searchBuildPending() and now - ctx.lastInputChangeMs >= SearchDebounceMs:
     lastSearchBuildMs = now
     buildActions()
     return true
   false
+
+## Milliseconds the event loop may sleep before a timed update is due.
+proc nextWaitTimeoutMs(): int32 =
+  var deadline = gui.nextRedrawDeadlineMs()
+  if searchBuildPending():
+    deadline = min(deadline, ctx.lastInputChangeMs + SearchDebounceMs)
+  int32(clamp(deadline - gui.nowMs(), 1'i64, MaxWaitMs))
 
 proc main*() =
   let startupTimeMs = gui.nowMs()
   configureStartupMode()
 
   if not ctx.dmenuMode and not ensureSingleInstance():
-    echo "NimLaunch is already running."
+    # A second launch toggles: close the visible launcher instead of opening another.
+    if not closeRunningInstance():
+      echo "NimLaunch is already running."
     quit 0
   initLauncherConfig()
   if ctx.dmenuPrompt.len > 0:
@@ -127,7 +147,9 @@ proc main*() =
   focus.lastGainMs = focus.startMs
 
   while not ctx.shouldExit:
-    while pollEvent(ev):
+    ## Sleep until an event, a worker wake-up, or the next timed deadline.
+    var haveEvent = waitEventTimeout(ev, nextWaitTimeoutMs())
+    while haveEvent:
       case ev.`type`
       of EVENT_QUIT:
         ctx.shouldExit = true
@@ -153,21 +175,18 @@ proc main*() =
         gui.redrawWindow()
       else:
         discard
+      haveEvent = pollEvent(ev)
 
     if ctx.shouldExit: break
 
-    if processSearchDebounce():
-      gui.redrawWindow()
-      continue
-
+    ## Run every check each wake-up so a worker event is never left unpolled.
+    var needsRedraw = processSearchDebounce()
     if pollSearchUpdates():
-      gui.redrawWindow()
-      continue
-
+      needsRedraw = true
     if gui.needsTimedRedraw():
+      needsRedraw = true
+    if needsRedraw:
       gui.redrawWindow()
-
-    delay(ctx.config.pollIntervalMs.uint32)
 
   if ctx.themePreviewActive:
     endThemePreviewSession(false)

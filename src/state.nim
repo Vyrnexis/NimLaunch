@@ -22,7 +22,10 @@ type
   DesktopApp* = object
     name*, nameLower*, exec*, desktopFile*: string
     desktopId*, workingDir*: string
+    genericName*, genericLower*: string
+    keywords*, keywordsLower*: seq[string]
     icon*: string
+    terminal*: bool ## Terminal=true: run inside the user's terminal
     desktopActions*: seq[DesktopEntryAction]
 
   ## Payload cached to `~/.cache/nimlaunch/apps.json`.
@@ -31,6 +34,8 @@ type
     environmentSignature*: string
     appDirs*: seq[string]
     dirSignatures*: seq[string]
+    tryExecs*: seq[string]       ## sorted unique TryExec values seen in the scan
+    tryExecSignature*: string    ## how those values resolved on PATH
     apps*: seq[DesktopApp]
 
   AppUsage* = object
@@ -40,7 +45,7 @@ type
   ## Launcher configuration populated by initLauncherConfig.
   Config* = object
     # Window geometry ----------------------------------------------------
-    winWidth*, winMaxHeight*: int
+    winWidth*: int
     opacity*: float          ## 0.1 - 1.0 window opacity (SDL window)
     lineHeight*, maxVisibleItems*: int
     centerWindow*: bool
@@ -62,7 +67,6 @@ type
     themeName*: string
     terminalExe*: string     ## preferred terminal program
     vimMode*: bool
-    pollIntervalMs*: int
 
     # Resolved colours (set after theme application) --------------------
     bgColor*, fgColor*, highlightBgColor*, highlightFgColor*,
@@ -99,6 +103,7 @@ type
     akFile,     # `:s` file search (open with default app)
     akShortcut, # configurable shortcut (URL/shell/file)
     akTheme,    # `:t` Theme selector
+    akQuit,     # `:q` exit NimLaunch
     akPlaceholder
 
   ## A single selectable entry in the launcher.
@@ -106,12 +111,13 @@ type
     kind*: ActionKind
     label*: string       # what gets drawn (e.g. "Firefox" or "Run: ls")
     exec*: string        # what actually gets executed or opened
-    appData*: DesktopApp # optional for akApp; empty for other kinds
+    appIndex*: int = -1  # index into ctx.allApps for akApp/akAppAction; -1 otherwise
     iconName*: string
     desktopName*, desktopIcon*: string
     shortcutMode*: ShortcutMode = smUrl
     powerMode*: PowerActionMode = pamTerminal
     stayOpen*: bool = false
+    spans*: seq[(int, int)] ## matched (byte offset, byte length) ranges of label
 
   VimCommandState* = object
     prefix*: string
@@ -145,7 +151,6 @@ type
     recentApps*: seq[string]
     appUsage*: Table[string, AppUsage]
     themeList*: seq[Theme]
-    matchSpans*: seq[seq[(int, int)]]
     shortcuts*: seq[Shortcut]
     groupQueryModes*: Table[string, GroupQueryMode]
     configFilesLoaded*: bool

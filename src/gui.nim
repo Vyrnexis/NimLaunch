@@ -144,13 +144,15 @@ const
   BaseIconMinSize = 16
   BaseIconMaxSize = 32
   BaseIconSizeInset = 2
+  ThemeFadeMs = 500 ## duration of the theme-name overlay fade
+  FadeFrameMs = 16  ## redraw interval while the fade is animating
 
 var
   lastThemeSwitchMs*: int64 = 0
   currentThemeName: string = ""
   statusText*: string = ""
   statusUntilMs*: int64 = 0
-  lastClockText: string = ""
+  lastClockMinute = -1 ## hour * 60 + minute of the last drawn clock
 
 
 # -------------------
@@ -169,28 +171,30 @@ proc roundScaled(base: int; scale: float32; minValue = 0): int =
 
 proc deriveFontSizeFromConfig(): int
 
+proc layoutInputFor(scale: float32; canvasHeight, fontLineHeight,
+    overlayLineHeight: int): LayoutInput =
+  ## Build the layout request for `scale` (1.0 for unscaled base units).
+  LayoutInput(
+    canvasHeight: canvasHeight,
+    requestedRows: ctx.config.maxVisibleItems,
+    configuredLineHeight: roundScaled(ctx.config.lineHeight, scale, minValue = 1),
+    fontLineHeight: fontLineHeight,
+    overlayLineHeight: overlayLineHeight,
+    iconMinimum: roundScaled(BaseIconMinSize, scale, minValue = 1) +
+        roundScaled(BaseIconSizeInset, scale),
+    textPadding: roundScaled(4, scale),
+    outerMargin: roundScaled(BaseOuterMargin, scale),
+    rowGap: roundScaled(BaseRowGap, scale),
+    commandExtraHeight: roundScaled(BaseCommandBarExtraHeight, scale),
+    commandBottomGap: roundScaled(BaseCommandBarBottomGap, scale),
+    vimMode: ctx.config.vimMode,
+    showIcons: ctx.config.showIcons)
+
 proc logicalWindowHeight(): int =
   ## Estimate the initial native height before SDL can report display metrics.
   let fontSize = deriveFontSizeFromConfig()
-  let input = LayoutInput(
-    canvasHeight: 1,
-    requestedRows: ctx.config.maxVisibleItems,
-    configuredLineHeight: ctx.config.lineHeight,
-    fontLineHeight: fontSize + 4,
-    overlayLineHeight: max(6, fontSize - 2) + 4,
-    iconMinimum: BaseIconMinSize + BaseIconSizeInset,
-    textPadding: 4,
-    outerMargin: BaseOuterMargin,
-    rowGap: BaseRowGap,
-    commandExtraHeight: BaseCommandBarExtraHeight,
-    commandBottomGap: BaseCommandBarBottomGap,
-    vimMode: ctx.config.vimMode,
-    showIcons: ctx.config.showIcons)
+  let input = layoutInputFor(1.0'f32, 1, fontSize + 4, max(6, fontSize - 2) + 4)
   min(4096, computeLayout(input).desiredHeight)
-
-## Return the font-aware initial window-height estimate.
-proc estimatedWindowHeight*(): int =
-  logicalWindowHeight()
 
 proc currentVideoDriverName(): string =
   let raw = getCurrentVideoDriver()
@@ -248,37 +252,25 @@ proc resolveFontPath(name: string): string =
     discard
   DefaultFontPath
 
-proc clampDisplayIndex(displayIndex: int): int =
+proc displayBounds(displayIndex: int; bounds: var Rect): bool =
+  ## Fetch the bounds of the display at `displayIndex` (clamped to the available range).
   var count: cint
   let displays = getDisplays(count)
   defer:
     if displays != nil:
       sdlFree(displays)
-  if count <= 0:
-    return 0
-  if displayIndex < 0: return 0
-  if displayIndex >= count: return count - 1
-  displayIndex
+  if displays == nil or count <= 0:
+    return false
+  getDisplayBounds(displays[clamp(displayIndex, 0, count.int - 1)], bounds)
 
 proc computeAlignedWindowX(winWidth: int; displayIndex: int): cint =
   ## Compute window X for centerWindow using display bounds.
-  let idx = clampDisplayIndex(displayIndex)
   var bounds: Rect
-  var count: cint
-  let displays = getDisplays(count)
-  defer:
-    if displays != nil:
-      sdlFree(displays)
-  if displays == nil or idx >= count.int:
-    return WINDOWPOS_CENTERED.cint
-  if not getDisplayBounds(displays[idx], bounds):
+  if not displayBounds(displayIndex, bounds) or bounds.w <= 0:
     return WINDOWPOS_CENTERED.cint
 
   let displayLeft = bounds.x.int
   let displayW = bounds.w.int
-  if displayW <= 0:
-    return WINDOWPOS_CENTERED.cint
-
   var x = displayLeft + (displayW - winWidth) div 2
   let maxX = displayLeft + displayW - winWidth
   if maxX >= displayLeft:
@@ -287,23 +279,12 @@ proc computeAlignedWindowX(winWidth: int; displayIndex: int): cint =
 
 proc computeAlignedWindowY(winHeight: int; displayIndex: int): cint =
   ## Compute window Y for centerWindow + verticalAlign using display bounds.
-  let idx = clampDisplayIndex(displayIndex)
   var bounds: Rect
-  var count: cint
-  let displays = getDisplays(count)
-  defer:
-    if displays != nil:
-      sdlFree(displays)
-  if displays == nil or idx >= count.int:
-    return WINDOWPOS_CENTERED.cint
-  if not getDisplayBounds(displays[idx], bounds):
+  if not displayBounds(displayIndex, bounds) or bounds.h <= 0:
     return WINDOWPOS_CENTERED.cint
 
   let displayTop = bounds.y.int
   let displayH = bounds.h.int
-  if displayH <= 0:
-    return WINDOWPOS_CENTERED.cint
-
   let align = ctx.config.verticalAlign.toLowerAscii
   var centerY: int
   case align
@@ -353,6 +334,33 @@ proc destroyState() =
 proc nowMs*(): int64 =
   (epochTime() * 1_000).int64
 
+proc scaledBaseMetrics(scale: float32): UiMetrics =
+  ## Metrics holding only the scale and the scaled base-unit sizes.
+  result.scale = scale
+  result.borderWidthPx = roundScaled(ctx.config.borderWidth, scale)
+  result.outerMarginPx = roundScaled(BaseOuterMargin, scale)
+  result.rowGapPx = roundScaled(BaseRowGap, scale)
+  result.rowTextInsetPx = roundScaled(BaseRowTextInset, scale)
+  result.iconInsetPx = roundScaled(BaseIconInset, scale)
+  result.iconTextGapPx = roundScaled(BaseIconTextGap, scale)
+  result.overlayMarginPx = roundScaled(BaseOverlayMargin, scale)
+  result.commandBarExtraHeightPx = roundScaled(BaseCommandBarExtraHeight, scale)
+  result.commandBarBottomGapPx = roundScaled(BaseCommandBarBottomGap, scale)
+  result.overlayStackGapPx = roundScaled(BaseOverlayStackGap, scale)
+
+proc applyLayout(m: var UiMetrics) =
+  ## Fill the row/content/icon metrics from the scale, draw size and font heights.
+  let computed = computeLayout(layoutInputFor(m.scale, m.drawH,
+      m.fontLineHeightPx, m.overlayLineHeightPx))
+  m.lineHeightPx = computed.rowHeight
+  m.contentTopPx = computed.contentTop
+  m.contentBottomPx = computed.contentBottom
+  m.visibleRows = computed.visibleRows
+  let iconInset = roundScaled(BaseIconSizeInset, m.scale)
+  let iconMin = roundScaled(BaseIconMinSize, m.scale, minValue = 1)
+  let iconMax = roundScaled(BaseIconMaxSize, m.scale, minValue = 1)
+  m.iconSlotPx = max(iconMin, min(m.lineHeightPx - iconInset, iconMax))
+
 proc computeUiMetrics(window: Window; renderer: Renderer): UiMetrics =
   var drawW, drawH: cint
   var winW, winH: cint
@@ -383,7 +391,7 @@ proc computeUiMetrics(window: Window; renderer: Renderer): UiMetrics =
   if scale < 1.0'f32:
     scale = 1.0'f32
 
-  result.scale = scale
+  result = scaledBaseMetrics(scale)
   result.displayID = displayID
   result.displayScale = displayScale
   result.pixelDensity = pixelDensity
@@ -392,16 +400,6 @@ proc computeUiMetrics(window: Window; renderer: Renderer): UiMetrics =
   result.logicalWinH = logicalH
   result.drawW = drawWi
   result.drawH = drawHi
-  result.borderWidthPx = roundScaled(ctx.config.borderWidth, scale)
-  result.outerMarginPx = roundScaled(BaseOuterMargin, scale)
-  result.rowGapPx = roundScaled(BaseRowGap, scale)
-  result.rowTextInsetPx = roundScaled(BaseRowTextInset, scale)
-  result.iconInsetPx = roundScaled(BaseIconInset, scale)
-  result.iconTextGapPx = roundScaled(BaseIconTextGap, scale)
-  result.overlayMarginPx = roundScaled(BaseOverlayMargin, scale)
-  result.commandBarExtraHeightPx = roundScaled(BaseCommandBarExtraHeight, scale)
-  result.commandBarBottomGapPx = roundScaled(BaseCommandBarBottomGap, scale)
-  result.overlayStackGapPx = roundScaled(BaseOverlayStackGap, scale)
   result.fontLineHeightPx =
     if not st.isNil and not st.font.isNil: max(1, getFontLineSkip(st.font).int)
     else: roundScaled(max(1, deriveFontSizeFromConfig() + 4), scale, minValue = 1)
@@ -410,50 +408,14 @@ proc computeUiMetrics(window: Window; renderer: Renderer): UiMetrics =
       max(1, getFontLineSkip(st.fontOverlay).int)
     else:
       roundScaled(max(1, deriveFontSizeFromConfig() + 2), scale, minValue = 1)
-  let iconInset = roundScaled(BaseIconSizeInset, scale)
-  let iconMin = roundScaled(BaseIconMinSize, scale, minValue = 1)
-  let iconMax = roundScaled(BaseIconMaxSize, scale, minValue = 1)
-  let input = LayoutInput(
-    canvasHeight: drawHi,
-    requestedRows: ctx.config.maxVisibleItems,
-    configuredLineHeight: roundScaled(ctx.config.lineHeight, scale, minValue = 1),
-    fontLineHeight: result.fontLineHeightPx,
-    overlayLineHeight: result.overlayLineHeightPx,
-    iconMinimum: iconMin + iconInset,
-    textPadding: roundScaled(4, scale),
-    outerMargin: result.outerMarginPx,
-    rowGap: result.rowGapPx,
-    commandExtraHeight: result.commandBarExtraHeightPx,
-    commandBottomGap: result.commandBarBottomGapPx,
-    vimMode: ctx.config.vimMode,
-    showIcons: ctx.config.showIcons)
-  let computed = computeLayout(input)
-  result.lineHeightPx = computed.rowHeight
-  result.contentTopPx = computed.contentTop
-  result.contentBottomPx = computed.contentBottom
-  result.visibleRows = computed.visibleRows
-  result.iconSlotPx = max(iconMin, min(result.lineHeightPx - iconInset, iconMax))
-  if result.iconSlotPx < 1:
-    result.iconSlotPx = 1
+  applyLayout(result)
 
 ## Resize the native window so its drawable fits the requested rows and font.
 proc fitWindowToContent(metrics: UiMetrics): bool =
   if st.isNil or st.window.isNil:
     return false
-  let input = LayoutInput(
-    canvasHeight: metrics.drawH,
-    requestedRows: ctx.config.maxVisibleItems,
-    configuredLineHeight: roundScaled(ctx.config.lineHeight, metrics.scale, 1),
-    fontLineHeight: metrics.fontLineHeightPx,
-    overlayLineHeight: metrics.overlayLineHeightPx,
-    iconMinimum: roundScaled(BaseIconMinSize + BaseIconSizeInset, metrics.scale, 1),
-    textPadding: roundScaled(4, metrics.scale),
-    outerMargin: metrics.outerMarginPx,
-    rowGap: metrics.rowGapPx,
-    commandExtraHeight: metrics.commandBarExtraHeightPx,
-    commandBottomGap: metrics.commandBarBottomGapPx,
-    vimMode: ctx.config.vimMode,
-    showIcons: ctx.config.showIcons)
+  let input = layoutInputFor(metrics.scale, metrics.drawH,
+      metrics.fontLineHeightPx, metrics.overlayLineHeightPx)
   let desiredCanvasH = computeLayout(input).desiredHeight
   let density =
     if metrics.pixelDensity > 0: metrics.pixelDensity
@@ -582,44 +544,14 @@ proc refreshMetrics*(force = false): bool =
 
 proc currentMetrics(): UiMetrics =
   if st.isNil:
-    result.scale = 1.0
+    result = scaledBaseMetrics(1.0'f32)
     result.logicalWinW = ctx.config.winWidth
     result.logicalWinH = logicalWindowHeight()
     result.drawW = result.logicalWinW
     result.drawH = result.logicalWinH
-    result.borderWidthPx = ctx.config.borderWidth
-    result.outerMarginPx = BaseOuterMargin
-    result.rowGapPx = BaseRowGap
-    result.rowTextInsetPx = BaseRowTextInset
-    result.iconInsetPx = BaseIconInset
-    result.iconTextGapPx = BaseIconTextGap
-    result.overlayMarginPx = BaseOverlayMargin
-    result.commandBarExtraHeightPx = BaseCommandBarExtraHeight
-    result.commandBarBottomGapPx = BaseCommandBarBottomGap
-    result.overlayStackGapPx = BaseOverlayStackGap
     result.fontLineHeightPx = deriveFontSizeFromConfig() + 4
     result.overlayLineHeightPx = max(6, deriveFontSizeFromConfig() - 2) + 4
-    let input = LayoutInput(
-      canvasHeight: result.drawH,
-      requestedRows: ctx.config.maxVisibleItems,
-      configuredLineHeight: ctx.config.lineHeight,
-      fontLineHeight: result.fontLineHeightPx,
-      overlayLineHeight: result.overlayLineHeightPx,
-      iconMinimum: BaseIconMinSize + BaseIconSizeInset,
-      textPadding: 4,
-      outerMargin: BaseOuterMargin,
-      rowGap: BaseRowGap,
-      commandExtraHeight: BaseCommandBarExtraHeight,
-      commandBottomGap: BaseCommandBarBottomGap,
-      vimMode: ctx.config.vimMode,
-      showIcons: ctx.config.showIcons)
-    let computed = computeLayout(input)
-    result.lineHeightPx = computed.rowHeight
-    result.contentTopPx = computed.contentTop
-    result.contentBottomPx = computed.contentBottom
-    result.visibleRows = computed.visibleRows
-    result.iconSlotPx = max(BaseIconMinSize, min(result.lineHeightPx - BaseIconSizeInset,
-        BaseIconMaxSize))
+    applyLayout(result)
   else:
     result = st.metrics
 
@@ -655,18 +587,35 @@ proc notifyStatus*(text: string; durationMs = 800) =
   statusText = text
   statusUntilMs = nowMs() + durationMs
 
+## Return the clock minute of day used to detect overlay changes.
+proc minuteOfDay(t: times.DateTime): int =
+  t.hour * 60 + t.minute
+
 ## Advance visual deadlines for fades, status expiry, and minute changes.
 proc needsTimedRedraw*(): bool =
   let currentMs = nowMs()
   if currentThemeName.len > 0:
-    if currentMs - lastThemeSwitchMs <= 500:
+    if currentMs - lastThemeSwitchMs <= ThemeFadeMs:
       return true
     currentThemeName.setLen(0)
     return true
   if statusText.len > 0 and currentMs > statusUntilMs:
     statusText.setLen(0)
     return true
-  now().format("HH:mm") != lastClockText
+  minuteOfDay(now()) != lastClockMinute
+
+## Return the nowMs() time of the next fade frame, status expiry, or clock
+## minute change. A time at or before now() means a redraw is already due.
+proc nextRedrawDeadlineMs*(): int64 =
+  let currentMs = nowMs()
+  if currentThemeName.len > 0:
+    return currentMs + FadeFrameMs
+  if statusText.len > 0:
+    return statusUntilMs + 1
+  let t = now()
+  if minuteOfDay(t) != lastClockMinute:
+    return currentMs
+  currentMs + (60 - t.second) * 1000 - t.nanosecond div 1_000_000
 
 # -------------------
 # Init / Shutdown
@@ -872,6 +821,98 @@ proc drawIconAt(slotX, y: int; slotSize: int; iconName: string): int =
 # -------------------
 # Drawing
 # -------------------
+const Ellipsis = "…"
+
+type
+  ## A byte range of a label drawn in one font and colour.
+  TextRun = object
+    a, b: int
+    matched: bool
+
+proc blitText(font: Font; text: string; color: Color; x, top, height: int): int =
+  ## Draw `text` vertically centred in [top, top + height); return its width.
+  let tex = renderText(font, text, color)
+  if tex.isNil: return 0
+  var tw, th: cfloat
+  discard getTextureSize(tex, tw, th)
+  let textHeight = int(round(th.float))
+  let width = int(round(tw.float))
+  let dst = toFRect(x, top + (height - textHeight) div 2, width, textHeight)
+  discard renderTexture(st.renderer, tex, nil, dst.addr)
+  width
+
+proc buildRuns(limit: int; spans: seq[(int, int)]): seq[TextRun] =
+  ## Split [0, limit) into alternating plain and matched runs. Adjacent spans
+  ## become one run, so each run is a single texture.
+  var pos = 0
+  for (start, length) in spans:
+    let first = max(start, pos)
+    let last = min(start + length, limit)
+    if length > 0 and first < last:
+      if first > pos:
+        result.add TextRun(a: pos, b: first)
+      if result.len > 0 and result[^1].matched and result[^1].b == first:
+        result[^1].b = last
+      else:
+        result.add TextRun(a: first, b: last, matched: true)
+      pos = last
+  if pos < limit:
+    result.add TextRun(a: pos, b: limit)
+
+proc runsWidth(text: string; runs: seq[TextRun]): int =
+  for run in runs:
+    let font = if run.matched: st.fontBold else: st.font
+    result += measureText(font, text[run.a ..< run.b])[0]
+
+proc rowTextAvail(rowX, textX: int): int =
+  ## Width available for text that starts at `textX` in a row at `rowX`.
+  let m = currentMetrics()
+  max(1, m.drawW - rowX - m.rowTextInsetPx - textX)
+
+proc fitRuns(text: string; spans: seq[(int, int)]; avail: int;
+    runs: var seq[TextRun]): bool =
+  ## Build the runs for `text`; when it is wider than `avail`, cut it at the
+  ## longest UTF-8-safe prefix that leaves room for an ellipsis and return true.
+  runs = buildRuns(text.len, spans)
+  if runsWidth(text, runs) <= avail:
+    return false
+  let budget = avail - measureText(st.font, Ellipsis)[0]
+  var cuts: seq[int] = @[0]
+  for i in 1 .. text.len:
+    if i == text.len or (ord(text[i]) and 0xC0) != 0x80:
+      cuts.add i
+  var lo = 0
+  var hi = cuts.high
+  while lo < hi:
+    let mid = (lo + hi + 1) div 2
+    if runsWidth(text, buildRuns(cuts[mid], spans)) <= budget:
+      lo = mid
+    else:
+      hi = mid - 1
+  runs = buildRuns(cuts[lo], spans)
+  true
+
+proc fitTail(prompt, body, cursor: string; avail: int): string =
+  ## `prompt & body & cursor`; when too wide, keep the prompt, an ellipsis and
+  ## the end of `body` so the caret stays visible.
+  result = prompt & body & cursor
+  if measureText(st.font, result)[0] <= avail:
+    return
+  var cuts: seq[int] = @[]
+  for i in 0 .. body.len:
+    if i == body.len or (ord(body[i]) and 0xC0) != 0x80:
+      cuts.add i
+  ## Larger cut index = shorter tail = narrower line.
+  var lo = 0
+  var hi = cuts.high
+  while lo < hi:
+    let mid = (lo + hi) div 2
+    if measureText(st.font, prompt & Ellipsis & body[cuts[mid] .. ^1] & cursor)[0] <= avail:
+      hi = mid
+    else:
+      lo = mid + 1
+  result = prompt & Ellipsis & body[cuts[lo] .. ^1] & cursor
+
 proc drawText(x, y: int; text: string; spans: seq[(int, int)] = @[];
     selected = false; iconName = "") =
   if st.isNil or st.renderer.isNil: return
@@ -892,34 +933,15 @@ proc drawText(x, y: int; text: string; spans: seq[(int, int)] = @[];
   if ctx.config.showIcons and iconName.len > 0:
     textX = drawIconAt(slotX, y, iconSlot, iconName)
 
-  ## Base text
-  if text.len > 0:
-    let tex = renderText(st.font, text, baseColor)
-    if not tex.isNil:
-      var tw, th: cfloat
-      discard getTextureSize(tex, tw, th)
-      let textHeight = int(round(th.float))
-      let dst = toFRect(textX, y + (m.lineHeightPx - textHeight) div 2,
-          int(round(tw.float)), textHeight)
-      discard renderTexture(st.renderer, tex, nil, dst.addr)
-
-  ## Highlight spans
-  if spans.len > 0:
-    for (s, len) in spans:
-      if len <= 0 or s < 0 or s >= text.len: continue
-      let e = min(s + len, text.len)
-      let pre = if s > 0: text[0 ..< s] else: ""
-      let seg = text[s ..< e]
-      let (preW, _) = measureText(st.font, pre)
-      let tex = renderText(st.fontBold, seg, colMatch)
-      if tex.isNil: continue
-      var tw, th: cfloat
-      discard getTextureSize(tex, tw, th)
-      let textHeight = int(round(th.float))
-      let dst = toFRect(textX + preW,
-          y + (m.lineHeightPx - textHeight) div 2,
-          int(round(tw.float)), textHeight)
-      discard renderTexture(st.renderer, tex, nil, dst.addr)
+  ## Plain and matched runs drawn left to right, truncated with an ellipsis.
+  var runs: seq[TextRun]
+  let truncated = fitRuns(text, spans, rowTextAvail(x, textX), runs)
+  for run in runs:
+    textX += blitText(if run.matched: st.fontBold else: st.font,
+        text[run.a ..< run.b], if run.matched: colMatch else: baseColor,
+        textX, y, m.lineHeightPx)
+  if truncated:
+    discard blitText(st.font, Ellipsis, baseColor, textX, y, m.lineHeightPx)
 
 ## Draw right-aligned overlay text above the result area.
 proc drawOverlay(text: string; color: Color) =
@@ -941,9 +963,9 @@ proc drawOverlay(text: string; color: Color) =
 proc drawThemeOverlay() =
   if currentThemeName.len == 0: return
   let elapsed = nowMs() - lastThemeSwitchMs
-  if elapsed > 500: return
+  if elapsed > ThemeFadeMs: return
   var color = colFg
-  color.a = uint8(255.0 * (1.0 - elapsed.float / 500.0))
+  color.a = uint8(255.0 * (1.0 - elapsed.float / ThemeFadeMs.float))
   drawOverlay(currentThemeName, color)
 
 ## Draw the current status message until its deadline.
@@ -954,8 +976,9 @@ proc drawStatusOverlay() =
 
 proc drawClock(topRight = false) =
   let m = currentMetrics()
-  let nowStr = now().format("HH:mm")
-  lastClockText = nowStr
+  let t = now()
+  let nowStr = t.format("HH:mm")
+  lastClockMinute = minuteOfDay(t)
   let (w, h) = measureText(st.fontOverlay, nowStr)
   let cx = m.drawW - w - roundScaled(BaseClockRightMargin, m.scale)
   let cy = if topRight: m.outerMarginPx else:
@@ -971,8 +994,10 @@ proc drawPromptAndInput(y: var int) =
   let m = currentMetrics()
   # Prompt + input line (hidden in Vim mode to mirror original)
   if not ctx.config.vimMode:
-    let promptLine = ctx.config.prompt & ctx.inputText & ctx.config.cursor
-    drawText(roundScaled(BasePromptInset, m.scale), y, promptLine)
+    let rowX = roundScaled(BasePromptInset, m.scale)
+    let promptLine = fitTail(ctx.config.prompt, ctx.inputText, ctx.config.cursor,
+        rowTextAvail(rowX, rowX + m.rowTextInsetPx))
+    drawText(rowX, y, promptLine)
     y += m.lineHeightPx + m.rowGapPx
   else:
     y = m.contentTopPx
@@ -988,7 +1013,7 @@ proc drawVisibleRows(startY: int): int =
     let action = ctx.actions[idx]
     let selected = (idx == ctx.selectedIndex)
     drawText(roundScaled(BasePromptInset, m.scale), y, action.label,
-        ctx.matchSpans[idx], selected, action.iconName)
+        action.spans, selected, action.iconName)
     y += m.lineHeightPx
   y
 
@@ -1013,27 +1038,14 @@ proc drawCommandBar() =
   discard setRenderDrawColor(st.renderer, colHighlightBg.r, colHighlightBg.g,
       colHighlightBg.b, 255'u8)
   discard renderFillRect(st.renderer, barRect.addr)
-  var textX = roundScaled(BasePromptInset, m.scale)
+  let padX = roundScaled(BasePromptInset, m.scale)
+  var textX = padX
   if ctx.vim.prefix.len > 0:
-    let prefixTex = renderText(st.font, ctx.vim.prefix, colHighlightFg)
-    if not prefixTex.isNil:
-      var tw, th: cfloat
-      discard getTextureSize(prefixTex, tw, th)
-      let pw = int(round(tw.float))
-      let ph = int(round(th.float))
-      let pDst = toFRect(textX, barTop + (barHeight - ph) div 2, pw, ph)
-      textX = textX + pw + m.overlayStackGapPx
-      discard renderTexture(st.renderer, prefixTex, nil, pDst.addr)
-  let barText = ctx.vim.buffer
-  if barText.len > 0:
-    let tex = renderText(st.font, barText, colHighlightFg)
-    if not tex.isNil:
-      var tw, th: cfloat
-      discard getTextureSize(tex, tw, th)
-      let thI = int(round(th.float))
-      let dst = toFRect(textX, barTop + (barHeight - thI) div 2,
-          int(round(tw.float)), thI)
-      discard renderTexture(st.renderer, tex, nil, dst.addr)
+    textX += blitText(st.font, ctx.vim.prefix, colHighlightFg, textX, barTop,
+        barHeight) + m.overlayStackGapPx
+  if ctx.vim.buffer.len > 0:
+    let barText = fitTail("", ctx.vim.buffer, "", max(1, m.drawW - padX - textX))
+    discard blitText(st.font, barText, colHighlightFg, textX, barTop, barHeight)
 
 proc drawBorder() =
   let m = currentMetrics()

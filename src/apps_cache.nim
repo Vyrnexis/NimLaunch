@@ -3,7 +3,7 @@
 import std/[os, json, times, options, strutils, algorithm, hashes, sets, syncio]
 import ./[state, parser, paths]
 
-const CacheFormatVersion = 10
+const CacheFormatVersion = 13
 
 ## Derive the desktop-file ID relative to its applications directory.
 proc desktopFileId(baseDir, path: string): string =
@@ -14,28 +14,30 @@ proc desktopFileId(baseDir, path: string): string =
 proc parsingEnvironmentSignature(): string =
   [getEnv("LC_ALL"), getEnv("LC_MESSAGES"), getEnv("LANG"), getEnv("PATH")].join("\x1f")
 
-## Describe TryExec availability for one desktop file.
-proc tryExecState(path: string): string =
-  var inDesktopEntry = false
+## Describe how one TryExec value resolves on PATH, including the mtime.
+proc tryExecResolution(value: string): string =
+  let resolved = findExe(value)
+  if resolved.len == 0:
+    return value & ":missing"
+  var modified = 0'i64
   try:
-    for raw in lines(path):
-      let line = raw.strip()
-      if line.startsWith('[') and line.endsWith(']'):
-        inDesktopEntry = line == "[Desktop Entry]"
-      elif inDesktopEntry and line.startsWith("TryExec="):
-        let value = line["TryExec=".len..^1].strip()
-        let resolved = findExe(value)
-        if resolved.len == 0:
-          return value & ":missing"
-        let modified = getLastModificationTime(resolved).toUnix()
-        return value & ":" & resolved & ":" & $modified
-  except CatchableError:
+    modified = getLastModificationTime(resolved).toUnix()
+  except OSError:
     discard
-  ""
+  value & ":" & resolved & ":" & $modified
+
+## Summarize how every cached TryExec value resolves, without reading any
+## .desktop file. Installing or removing a program changes the result.
+proc tryExecSignature(tryExecs: seq[string]): string =
+  var resolutions: seq[string] = @[]
+  for value in tryExecs:
+    resolutions.add tryExecResolution(value)
+  $hash(resolutions)
 
 proc desktopDirFingerprint(dir: string): string =
   ## Build a lightweight fingerprint for *.desktop files under *dir*.
-  ## Includes newest mtime, file count, summed mtimes, and summed file sizes.
+  ## Includes newest mtime, file count, summed mtimes, summed file sizes, and
+  ## a path hash. Only directory walking and stat calls are used.
   if not dirExists(dir):
     return "0:0:0:0"
   var newest = 0'i64
@@ -43,13 +45,9 @@ proc desktopDirFingerprint(dir: string): string =
   var sumMtime = 0'i64
   var sumSize = 0'i64
   var paths: seq[string] = @[]
-  var tryExecStates: seq[string] = @[]
   for entry in walkDirDepth(dir, maxDepth = 3, yieldFilter = {pcFile}):
     if entry.endsWith(".desktop"):
       paths.add(entry)
-      let state = tryExecState(entry)
-      if state.len > 0:
-        tryExecStates.add(state)
       try:
         let info = getFileInfo(entry)
         let m = times.toUnix(info.lastWriteTime)
@@ -60,11 +58,8 @@ proc desktopDirFingerprint(dir: string): string =
       except CatchableError:
         discard
   paths.sort()
-  tryExecStates.sort()
-  let pathHash = hash(paths)
-  let tryExecHash = hash(tryExecStates)
   $count & ":" & $newest & ":" & $sumMtime & ":" & $sumSize &
-      ":" & $pathHash & ":" & $tryExecHash
+      ":" & $hash(paths)
 
 proc loadApplications*() =
   ## Scan .desktop files with caching to ~/.cache/nimlaunch/apps.json.
@@ -81,13 +76,14 @@ proc loadApplications*() =
     try:
       let node = parseJson(readFile(cacheFile))
       if node.kind == JObject and node.hasKey("formatVersion"):
-        let c = to(node, CacheData)
-        if c.formatVersion == CacheFormatVersion and
-           c.environmentSignature == environmentSignature and
-           c.appDirs == appDirs and c.dirSignatures == dirSignatures:
-          ctx.allApps = c.apps
-          ctx.matchSpans = @[]
-          return
+        ## Check the version before decoding: older caches lack newer fields.
+        if node["formatVersion"].getInt() == CacheFormatVersion:
+          let c = to(node, CacheData)
+          if c.environmentSignature == environmentSignature and
+             c.appDirs == appDirs and c.dirSignatures == dirSignatures and
+             c.tryExecSignature == tryExecSignature(c.tryExecs):
+            ctx.allApps = c.apps
+            return
       else:
         if ctx.verboseMode:
           stderr.writeLine "Cache invalid — rescanning …"
@@ -98,6 +94,7 @@ proc loadApplications*() =
 
   var claimedIds = initHashSet[string]()
   var apps: seq[DesktopApp] = @[]
+  var tryExecSet = initHashSet[string]()
   for dir in appDirs:
     if not dirExists(dir): continue
     for path in walkDirDepth(dir, maxDepth = 3, yieldFilter = {pcFile}):
@@ -106,7 +103,10 @@ proc loadApplications*() =
       if desktopId in claimedIds:
         continue
       claimedIds.incl(desktopId)
-      let opt = parseDesktopFile(path)
+      var tryExec = ""
+      let opt = parseDesktopFile(path, tryExec)
+      if tryExec.len > 0:
+        tryExecSet.incl(tryExec)
       if isSome(opt):
         var app = get(opt)
         app.desktopId = desktopId
@@ -114,13 +114,18 @@ proc loadApplications*() =
 
   ctx.allApps = apps
   ctx.allApps.sort(proc(a, b: DesktopApp): int = cmpIgnoreCase(a.name, b.name))
-  ctx.matchSpans = @[]
+  var tryExecs: seq[string] = @[]
+  for value in tryExecSet:
+    tryExecs.add value
+  tryExecs.sort()
   try:
     createDir(cacheBase)
     writeFile(cacheFile, $ %CacheData(formatVersion: CacheFormatVersion,
                                       environmentSignature: environmentSignature,
                                       appDirs: appDirs,
                                       dirSignatures: dirSignatures,
+                                      tryExecs: tryExecs,
+                                      tryExecSignature: tryExecSignature(tryExecs),
                                       apps: ctx.allApps))
   except IOError, OSError:
     let e = getCurrentException()

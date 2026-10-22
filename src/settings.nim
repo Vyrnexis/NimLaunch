@@ -2,7 +2,7 @@
 
 import std/[os, strutils, math, options, tables, syncio]
 import parsetoml as toml
-import ./[state as st, gui, utils, paths]
+import ./[state as st, gui, utils, paths, themes]
 
 var
   baseMatchFgColorHex = "" ## default fallback for match highlight colour
@@ -64,59 +64,75 @@ proc saveLastTheme*(): bool =
         " (" & $e.name & "): " & e.msg
     false
 
+template withSection(tbl: toml.TomlValueRef; name, cfgPath: string; body: untyped) =
+  ## Run `body` with the `[name]` table injected as `sec`; warn if it is malformed.
+  if tbl.hasKey(name):
+    try:
+      let sec {.inject.} = tbl[name].getTable()
+      body
+    except CatchableError:
+      stderr.writeLine "NimLaunch warning: ignoring invalid [" & name &
+          "] section in " & cfgPath
+
+template forEachEntry(tbl: toml.TomlValueRef; name, cfgPath: string; entry,
+    body: untyped) =
+  ## Run `body` for each `[[name]]` entry (bound to `entry`); count and warn on bad ones.
+  if tbl.hasKey(name):
+    try:
+      var invalidCount = 0
+      for entry in tbl[name].getElems():
+        try:
+          body
+        except CatchableError:
+          inc invalidCount
+      if invalidCount > 0:
+        stderr.writeLine "NimLaunch warning: skipped " & $invalidCount &
+            " invalid [[" & name & "]] entries in " & cfgPath
+    except CatchableError:
+      stderr.writeLine "NimLaunch warning: ignoring invalid [[" & name &
+          "]] entries in " & cfgPath
+
 proc loadShortcutsSection(tbl: toml.TomlValueRef; cfgPath: string) =
   ## Populate `ctx.shortcuts` from `[[shortcuts]]` entries in *tbl*.
   ctx.shortcuts = @[]
-  if not tbl.hasKey("shortcuts"): return
+  forEachEntry(tbl, "shortcuts", cfgPath, scVal):
+    let scTbl = scVal.getTable()
+    let prefixRaw = scTbl.getOrDefault("prefix").getStr("")
+    var prefix = normalizePrefix(prefixRaw)
+    let base = scTbl.getOrDefault("base").getStr("").strip()
+    let label = scTbl.getOrDefault("label").getStr("").strip(chars = {'\t',
+        '\r', '\n'})
+    let modeStr = scTbl.getOrDefault("mode").getStr("url").toLowerAscii
+    let group = scTbl.getOrDefault("group").getStr("").strip().toLowerAscii
+    let runModeStr = scTbl.getOrDefault("run_mode").getStr("").strip().toLowerAscii
+    let stayOpen = scTbl.getOrDefault("stay_open").getBool(false)
 
-  try:
-    var invalidCount = 0
-    for scVal in tbl["shortcuts"].getElems():
-      try:
-        let scTbl = scVal.getTable()
-        let prefixRaw = scTbl.getOrDefault("prefix").getStr("")
-        var prefix = normalizePrefix(prefixRaw)
-        let base = scTbl.getOrDefault("base").getStr("").strip()
-        let label = scTbl.getOrDefault("label").getStr("").strip(chars = {'\t',
-            '\r', '\n'})
-        let modeStr = scTbl.getOrDefault("mode").getStr("url").toLowerAscii
-        let group = scTbl.getOrDefault("group").getStr("").strip().toLowerAscii
-        let runModeStr = scTbl.getOrDefault("run_mode").getStr("").strip().toLowerAscii
-        let stayOpen = scTbl.getOrDefault("stay_open").getBool(false)
+    if base.len == 0:
+      continue
+    if group.len > 0:
+      prefix.setLen(0)
+    if prefix.len == 0 and group.len == 0:
+      continue
 
-        if base.len == 0:
-          continue
-        if group.len > 0:
-          prefix.setLen(0)
-        if prefix.len == 0 and group.len == 0:
-          continue
+    var mode = smUrl
+    case modeStr
+    of "shell": mode = smShell
+    of "file": mode = smFile
+    else: discard
 
-        var mode = smUrl
-        case modeStr
-        of "shell": mode = smShell
-        of "file": mode = smFile
-        else: discard
+    var runMode = pamTerminal
+    case runModeStr
+    of "spawn": runMode = pamSpawn
+    of "terminal": runMode = pamTerminal
+    else: discard
 
-        var runMode = pamTerminal
-        case runModeStr
-        of "spawn": runMode = pamSpawn
-        of "terminal": runMode = pamTerminal
-        else: discard
-
-        ctx.shortcuts.add Shortcut(prefix: prefix,
-                                  label: label,
-                                  base: base,
-                                  mode: mode,
-                                  group: group,
-                                  runMode: runMode,
-                                  stayOpen: stayOpen)
-      except CatchableError:
-        inc invalidCount
-    if invalidCount > 0:
-      stderr.writeLine "NimLaunch warning: skipped " & $invalidCount &
-          " invalid [[shortcuts]] entries in " & cfgPath
-  except CatchableError:
-    stderr.writeLine "NimLaunch warning: ignoring invalid [[shortcuts]] entries in " & cfgPath
+    ctx.shortcuts.add Shortcut(prefix: prefix,
+                              label: label,
+                              base: base,
+                              mode: mode,
+                              group: group,
+                              runMode: runMode,
+                              stayOpen: stayOpen)
 
 proc parseGroupQueryMode(modeStr: string): GroupQueryMode =
   case modeStr
@@ -126,25 +142,13 @@ proc parseGroupQueryMode(modeStr: string): GroupQueryMode =
 proc loadGroupsSection(tbl: toml.TomlValueRef; cfgPath: string) =
   ## Populate `ctx.groupQueryModes` from `[[groups]]` entries in *tbl*.
   ctx.groupQueryModes = initTable[string, GroupQueryMode]()
-  if not tbl.hasKey("groups"): return
-
-  try:
-    var invalidCount = 0
-    for grpVal in tbl["groups"].getElems():
-      try:
-        let grpTbl = grpVal.getTable()
-        let name = grpTbl.getOrDefault("name").getStr("").strip().toLowerAscii
-        if name.len == 0:
-          continue
-        let modeStr = grpTbl.getOrDefault("query_mode").getStr("filter").strip().toLowerAscii
-        ctx.groupQueryModes[name] = parseGroupQueryMode(modeStr)
-      except CatchableError:
-        inc invalidCount
-    if invalidCount > 0:
-      stderr.writeLine "NimLaunch warning: skipped " & $invalidCount &
-          " invalid [[groups]] entries in " & cfgPath
-  except CatchableError:
-    stderr.writeLine "NimLaunch warning: ignoring invalid [[groups]] entries in " & cfgPath
+  forEachEntry(tbl, "groups", cfgPath, grpVal):
+    let grpTbl = grpVal.getTable()
+    let name = grpTbl.getOrDefault("name").getStr("").strip().toLowerAscii
+    if name.len == 0:
+      continue
+    let modeStr = grpTbl.getOrDefault("query_mode").getStr("filter").strip().toLowerAscii
+    ctx.groupQueryModes[name] = parseGroupQueryMode(modeStr)
 
 proc ensureGroupDefaults() =
   ## Ensure every shortcut group exists with a default query mode.
@@ -176,7 +180,6 @@ proc initLauncherConfig*() =
   ctx.config.matchFgColorHex = "#f8c291"
   ctx.config.vimMode = false
   ctx.config.showIcons = true
-  ctx.config.pollIntervalMs = 10
 
   ## Ensure TOML exists
   let cfgDir = configDir()
@@ -204,101 +207,70 @@ proc initLauncherConfig*() =
     tbl = toml.parseString(defaultToml)
 
   ## window
-  if tbl.hasKey("window"):
-    try:
-      let w = tbl["window"].getTable()
-      ctx.config.winWidth = w.getOrDefault("width").getInt(ctx.config.winWidth)
-      ctx.config.maxVisibleItems = w.getOrDefault("max_visible_items").getInt(
-          ctx.config.maxVisibleItems)
-      ctx.config.centerWindow = w.getOrDefault("center").getBool(
-          ctx.config.centerWindow)
-      ctx.config.positionX = w.getOrDefault("position_x").getInt(
-          ctx.config.positionX)
-      ctx.config.positionY = w.getOrDefault("position_y").getInt(
-          ctx.config.positionY)
-      ctx.config.verticalAlign = w.getOrDefault("vertical_align").getStr(
-          ctx.config.verticalAlign)
-      ctx.config.displayIndex = w.getOrDefault("display").getInt(
-          ctx.config.displayIndex)
-      ctx.config.pollIntervalMs = w.getOrDefault("pollIntervalMs").getInt(
-          ctx.config.pollIntervalMs)
-      ctx.config.opacity = w.getOrDefault("opacity").getFloat(ctx.config.opacity)
-    except CatchableError:
-      stderr.writeLine "NimLaunch warning: ignoring invalid [window] section in " & cfgPath
+  withSection(tbl, "window", cfgPath):
+    ctx.config.winWidth = sec.getOrDefault("width").getInt(ctx.config.winWidth)
+    ctx.config.maxVisibleItems = sec.getOrDefault("max_visible_items").getInt(
+        ctx.config.maxVisibleItems)
+    ctx.config.centerWindow = sec.getOrDefault("center").getBool(
+        ctx.config.centerWindow)
+    ctx.config.positionX = sec.getOrDefault("position_x").getInt(
+        ctx.config.positionX)
+    ctx.config.positionY = sec.getOrDefault("position_y").getInt(
+        ctx.config.positionY)
+    ctx.config.verticalAlign = sec.getOrDefault("vertical_align").getStr(
+        ctx.config.verticalAlign)
+    ctx.config.displayIndex = sec.getOrDefault("display").getInt(
+        ctx.config.displayIndex)
+    ctx.config.opacity = sec.getOrDefault("opacity").getFloat(ctx.config.opacity)
 
   ## font
-  if tbl.hasKey("font"):
-    try:
-      let f = tbl["font"].getTable()
-      ctx.config.fontName = f.getOrDefault("fontname").getStr(ctx.config.fontName)
-    except CatchableError:
-      stderr.writeLine "NimLaunch warning: ignoring invalid [font] section in " & cfgPath
+  withSection(tbl, "font", cfgPath):
+    ctx.config.fontName = sec.getOrDefault("fontname").getStr(ctx.config.fontName)
 
   ## input
-  if tbl.hasKey("input"):
-    try:
-      let inp = tbl["input"].getTable()
-      ctx.config.prompt = inp.getOrDefault("prompt").getStr(ctx.config.prompt)
-      ctx.config.cursor = inp.getOrDefault("cursor").getStr(ctx.config.cursor)
-      ctx.config.vimMode = inp.getOrDefault("vim_mode").getBool(
-          ctx.config.vimMode)
-    except CatchableError:
-      stderr.writeLine "NimLaunch warning: ignoring invalid [input] section in " & cfgPath
+  withSection(tbl, "input", cfgPath):
+    ctx.config.prompt = sec.getOrDefault("prompt").getStr(ctx.config.prompt)
+    ctx.config.cursor = sec.getOrDefault("cursor").getStr(ctx.config.cursor)
+    ctx.config.vimMode = sec.getOrDefault("vim_mode").getBool(ctx.config.vimMode)
 
   ## terminal
-  if tbl.hasKey("terminal"):
-    try:
-      let term = tbl["terminal"].getTable()
-      ctx.config.terminalExe = term.getOrDefault("program").getStr(
-          ctx.config.terminalExe)
-    except CatchableError:
-      stderr.writeLine "NimLaunch warning: ignoring invalid [terminal] section in " & cfgPath
-
+  withSection(tbl, "terminal", cfgPath):
+    ctx.config.terminalExe = sec.getOrDefault("program").getStr(
+        ctx.config.terminalExe)
 
   ## border
-  if tbl.hasKey("border"):
-    try:
-      let b = tbl["border"].getTable()
-      ctx.config.borderWidth = b.getOrDefault("width").getInt(
-          ctx.config.borderWidth)
-    except CatchableError:
-      stderr.writeLine "NimLaunch warning: ignoring invalid [border] section in " & cfgPath
+  withSection(tbl, "border", cfgPath):
+    ctx.config.borderWidth = sec.getOrDefault("width").getInt(
+        ctx.config.borderWidth)
 
   ## icons
-  if tbl.hasKey("icons"):
-    try:
-      let ic = tbl["icons"].getTable()
-      ctx.config.showIcons = ic.getOrDefault("enabled").getBool(
-          ctx.config.showIcons)
-    except CatchableError:
-      stderr.writeLine "NimLaunch warning: ignoring invalid [icons] section in " & cfgPath
+  withSection(tbl, "icons", cfgPath):
+    ctx.config.showIcons = sec.getOrDefault("enabled").getBool(
+        ctx.config.showIcons)
 
-  ## themes
-  ctx.themeList = @[]
-  if tbl.hasKey("themes"):
-    try:
-      var invalidCount = 0
-      for thVal in tbl["themes"].getElems():
-        try:
-          let th = thVal.getTable()
-          ctx.themeList.add Theme(
-            name: th.getOrDefault("name").getStr(""),
-            bgColorHex: th.getOrDefault("bgColorHex").getStr(""),
-            fgColorHex: th.getOrDefault("fgColorHex").getStr(""),
-            highlightBgColorHex: th.getOrDefault("highlightBgColorHex").getStr(
-                ""),
-            highlightFgColorHex: th.getOrDefault("highlightFgColorHex").getStr(
-                ""),
-            borderColorHex: th.getOrDefault("borderColorHex").getStr(""),
-            matchFgColorHex: th.getOrDefault("matchFgColorHex").getStr("")
-          )
-        except CatchableError:
-          inc invalidCount
-      if invalidCount > 0:
-        stderr.writeLine "NimLaunch warning: skipped " & $invalidCount &
-            " invalid [[themes]] entries in " & cfgPath
-    except CatchableError:
-      stderr.writeLine "NimLaunch warning: ignoring invalid [[themes]] entries in " & cfgPath
+  ## themes: built-ins first; a user [[themes]] entry replaces a built-in of the
+  ## same name (case-insensitive) in place, otherwise it is appended.
+  ctx.themeList = BuiltinThemes
+  forEachEntry(tbl, "themes", cfgPath, thVal):
+    let th = thVal.getTable()
+    let userTheme = Theme(
+      name: th.getOrDefault("name").getStr("").strip(),
+      bgColorHex: th.getOrDefault("bgColorHex").getStr(""),
+      fgColorHex: th.getOrDefault("fgColorHex").getStr(""),
+      highlightBgColorHex: th.getOrDefault("highlightBgColorHex").getStr(""),
+      highlightFgColorHex: th.getOrDefault("highlightFgColorHex").getStr(""),
+      borderColorHex: th.getOrDefault("borderColorHex").getStr(""),
+      matchFgColorHex: th.getOrDefault("matchFgColorHex").getStr("")
+    )
+    if userTheme.name.len == 0:
+      raise newException(ValueError, "theme without a name")
+    var replaced = false
+    for i, known in ctx.themeList:
+      if not replaced and known.name.toLowerAscii == userTheme.name.toLowerAscii:
+        ctx.themeList[i] = userTheme
+        replaced = true
+    if not replaced:
+      ctx.themeList.add userTheme
 
   loadGroupsSection(tbl, cfgPath)
   loadShortcutsSection(tbl, cfgPath)
@@ -306,12 +278,8 @@ proc initLauncherConfig*() =
 
   ## last_chosen (case-insensitive match; fallback to first theme)
   var lastName = ""
-  if tbl.hasKey("theme"):
-    try:
-      let themeTbl = tbl["theme"].getTable()
-      lastName = themeTbl.getOrDefault("last_chosen").getStr("")
-    except CatchableError:
-      stderr.writeLine "NimLaunch warning: ignoring invalid [theme] section in " & cfgPath
+  withSection(tbl, "theme", cfgPath):
+    lastName = sec.getOrDefault("last_chosen").getStr("")
   let savedThemePath = cacheDir() / "theme"
   if fileExists(savedThemePath):
     try:
@@ -329,8 +297,7 @@ proc initLauncherConfig*() =
         pickedIndex = i
         break
   if pickedIndex < 0:
-    if ctx.themeList.len > 0: pickedIndex = 0
-    else: quit("NimLaunch error: no themes defined in nimlaunch.toml")
+    pickedIndex = 0
 
   let chosen = ctx.themeList[pickedIndex].name
   ctx.config.themeName = chosen
@@ -349,11 +316,5 @@ proc initLauncherConfig*() =
     ctx.config.borderWidth = 64
   if ctx.config.displayIndex < 0:
     ctx.config.displayIndex = 0
-  ctx.config.pollIntervalMs = clamp(ctx.config.pollIntervalMs, 1, 1000)
   ctx.config.opacity = clamp(ctx.config.opacity, 0.1, 1.0)
 
-  ## derived geometry
-  ctx.config.winMaxHeight = gui.estimatedWindowHeight()
-  let maxUsableBorder = max(0, (min(ctx.config.winWidth, ctx.config.winMaxHeight) - 1) div 2)
-  if ctx.config.borderWidth > maxUsableBorder:
-    ctx.config.borderWidth = maxUsableBorder

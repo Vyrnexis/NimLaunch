@@ -15,6 +15,10 @@ proc getXdgHome(envVar, defaultSuffix: string): string =
     return normalizedPath(fromEnv)
   getHomeDir() / defaultSuffix
 
+proc homeDirNoSlash*(): string =
+  ## Return $HOME without the trailing slash that `getHomeDir()` appends.
+  getHomeDir().strip(leading = false, chars = {'/'})
+
 proc userConfigHome*(): string =
   ## Return XDG config home (respects $XDG_CONFIG_HOME).
   getXdgHome("XDG_CONFIG_HOME", DefaultXdgConfigHome)

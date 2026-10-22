@@ -303,6 +303,35 @@ proc handleWindowEvent*(ev: Event; focus: var FocusState): bool =
 
   needsRedraw
 
+proc handleNavigationKey(sym: Keycode): bool =
+  ## Handle list navigation and activation keys shared by all input modes.
+  case sym
+  of SDLK_RETURN:
+    activateCurrentSelection()
+    true
+  of SDLK_UP:
+    moveSelectionBy(-1)
+    true
+  of SDLK_DOWN:
+    moveSelectionBy(1)
+    true
+  of SDLK_PAGEUP:
+    if ctx.actions.len > 0:
+      moveSelectionBy(-gui.visibleRowCount())
+    true
+  of SDLK_PAGEDOWN:
+    if ctx.actions.len > 0:
+      moveSelectionBy(gui.visibleRowCount())
+    true
+  of SDLK_HOME:
+    jumpToTop()
+    true
+  of SDLK_END:
+    jumpToBottom()
+    true
+  else:
+    false
+
 proc handleKeyDown*(ev: Event; focus: var FocusState): bool =
   let sym = ev.key.key
   let modState = ev.key.`mod`
@@ -314,8 +343,12 @@ proc handleKeyDown*(ev: Event; focus: var FocusState): bool =
     handled = pasteInputText()
   elif shiftHeld and sym == SDLK_INSERT:
     handled = pasteInputText()
+  elif shiftHeld and sym == SDLK_RETURN and acceptTypedText():
+    handled = true
   elif ctx.config.vimMode:
     handled = handleVimKey(sym, modState)
+    if not handled:
+      handled = handleNavigationKey(sym)
   elif sym == uint32(ord('u')) and ctrlHeld:
     clearInput()
     handled = true
@@ -327,9 +360,6 @@ proc handleKeyDown*(ev: Event; focus: var FocusState): bool =
     of SDLK_ESCAPE:
       ctx.shouldExit = true
       handled = true
-    of SDLK_RETURN:
-      activateCurrentSelection()
-      handled = true
     of SDLK_BACKSPACE:
       deleteLastInputChar()
       handled = true
@@ -338,28 +368,8 @@ proc handleKeyDown*(ev: Event; focus: var FocusState): bool =
       handled = true
     of SDLK_RIGHT:
       discard
-    of SDLK_UP:
-      moveSelectionBy(-1)
-      handled = true
-    of SDLK_DOWN:
-      moveSelectionBy(1)
-      handled = true
-    of SDLK_PAGEUP:
-      if ctx.actions.len > 0:
-        moveSelectionBy(-gui.visibleRowCount())
-      handled = true
-    of SDLK_PAGEDOWN:
-      if ctx.actions.len > 0:
-        moveSelectionBy(gui.visibleRowCount())
-      handled = true
-    of SDLK_HOME:
-      jumpToTop()
-      handled = true
-    of SDLK_END:
-      jumpToBottom()
-      handled = true
     else:
-      discard
+      handled = handleNavigationKey(sym)
 
   handled
 
