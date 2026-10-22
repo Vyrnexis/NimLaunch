@@ -288,6 +288,3 @@ run_mode = "spawn"
 # highlightFgColorHex = "#ffffff"   # selected row text
 # borderColorHex      = "#555555"
 # matchFgColorHex     = "#ff8c42"   # matched characters (optional)
-
-[theme]
-last_chosen = "Default"        # updated when you pick a theme with :t

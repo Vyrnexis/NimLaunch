@@ -127,8 +127,9 @@ proc themeIndex(name: string): int =
     if th.name.toLowerAscii == name.toLowerAscii:
       return i
 
-proc loadConfigText(toml: string) =
-  ## Load *toml* with the saved-theme cache isolated from the real one.
+proc loadConfigText(toml: string; savedTheme = "") =
+  ## Load *toml* with the saved-theme cache isolated from the real one;
+  ## *savedTheme* simulates a theme previously picked with `:t`.
   let cfgPath = getTempDir() / "nimlaunch_test_themes.toml"
   let cacheHome = getTempDir() / "nimlaunch-test-theme-cache"
   let hadCacheHome = existsEnv("XDG_CACHE_HOME")
@@ -140,6 +141,9 @@ proc loadConfigText(toml: string) =
     if fileExists(cfgPath): removeFile(cfgPath)
     if dirExists(cacheHome): removeDir(cacheHome)
   writeFile(cfgPath, toml)
+  if savedTheme.len > 0:
+    createDir(cacheHome / "nimlaunch")
+    writeFile(cacheHome / "nimlaunch" / "theme", savedTheme & "\n")
   ctx.configOverridePath = cfgPath
   initLauncherConfig()
 
@@ -228,10 +232,7 @@ highlightBgColorHex = "#070809"
 highlightFgColorHex = "#0a0b0c"
 borderColorHex = "#0d0e0f"
 matchFgColorHex = ""
-
-[theme]
-last_chosen = "Nord"
-""")
+""", savedTheme = "Nord")
     check ctx.themeList.len == BuiltinThemes.len
     let idx = themeIndex("Nord")
     check idx == themeIndex("nord")
@@ -253,10 +254,7 @@ highlightBgColorHex = "#2a2a2a"
 highlightFgColorHex = "#ffffff"
 borderColorHex = "#555555"
 matchFgColorHex = "#ff8c42"
-
-[theme]
-last_chosen = "My Theme"
-""")
+""", savedTheme = "My Theme")
     check ctx.themeList.len == BuiltinThemes.len + 1
     check ctx.themeList[^1].name == "My Theme"
     check ctx.config.themeName == "My Theme"
@@ -275,16 +273,20 @@ bgColorHex = "#222222"
 
   test "legacy default config with 13 theme blocks has no duplicates":
     loadConfigText("[window]\nwidth = 500\n\n" & LegacyThemeBlocks &
-        "\n[theme]\nlast_chosen = \"Gruvbox Dark\"\n")
+        "\n[theme]\nlast_chosen = \"Gruvbox Dark\"\n", savedTheme = "Gruvbox Dark")
     check ctx.themeList.len == BuiltinThemes.len
     check ctx.config.themeName == "Gruvbox Dark"
     var seen = initHashSet[string]()
     for th in ctx.themeList:
       check not seen.containsOrIncl(th.name.toLowerAscii)
 
-  test "unknown last_chosen falls back to the first theme":
-    loadConfigText("[theme]\nlast_chosen = \"No Such Theme\"\n")
+  test "unknown saved theme falls back to the first theme":
+    loadConfigText("", savedTheme = "No Such Theme")
     check ctx.config.themeName == ctx.themeList[0].name
+
+  test "obsolete [theme] last_chosen is ignored":
+    loadConfigText("[theme]\nlast_chosen = \"Nord\"\n")
+    check ctx.config.themeName == "Default"
 
   test "ignore the removed pollIntervalMs setting":
     let cfgPath = getTempDir() / "nimlaunch_test_legacy_poll.toml"

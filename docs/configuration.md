@@ -98,12 +98,6 @@ Icons follow your icon theme (`ICON_THEME` environment variable, then
 gsettings, then GTK `settings.ini`) and its `Inherits` chain, then `hicolor`,
 pixmaps, and other installed themes. PNG and SVG load through `SDL3_image`.
 
-### `[theme]`
-
-| Key | Type | Default | Notes |
-| --- | ---- | ------- | ----- |
-| `last_chosen` | string | `"Default"` | Initial theme, matched case-insensitively. The `theme` cache file takes priority once you pick a theme with `:t`. An unknown name falls back to the first theme (`Default`) |
-
 ### `[[themes]]`
 
 Optional, repeatable. Adds a theme or overrides a built-in one of the same

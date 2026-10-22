@@ -148,7 +148,4 @@ stay_open = false
 # borderColorHex      = "#555555"
 # matchFgColorHex     = "#ff8c42"
 
-[theme]
-last_chosen = "Default"
-
 """

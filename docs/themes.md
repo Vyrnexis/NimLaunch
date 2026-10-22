@@ -1,11 +1,11 @@
 # Themes
 
-NimLaunch ships with 84 built-in themes, so a fresh install works without any theme configuration. Themes control the launcher colors and the persisted active theme.
+NimLaunch ships with 84 built-in themes, so a fresh install works without any theme configuration. Themes control the launcher colors.
 
 - Browse and preview built-in themes with `:t` in the launcher.
 - Print every theme name with `nimlaunch --list-themes`.
 - Add your own themes, or override a built-in one, with `[[themes]]` blocks in `~/.config/nimlaunch/nimlaunch.toml`.
-- Select the initial theme with the `[theme]` section.
+- The theme you pick is remembered between runs; a fresh install starts with `Default`.
 
 Built-in themes are updated with NimLaunch releases. Because they are not copied into your configuration file, new and improved themes reach existing installs automatically.
 
@@ -51,17 +51,11 @@ Then:
 
 ## Persisted Theme
 
-The configuration provides the initial theme:
-
-```toml
-[theme]
-last_chosen = "Nord"
-```
-
-Accepted selections are stored in `${XDG_CACHE_HOME:-~/.cache}/nimlaunch/theme`
-without rewriting your configuration. When that file exists, it takes priority
-over `last_chosen`; delete it to fall back to the configured value. Names are
-matched case-insensitively.
+The theme you accept with `:t` is stored in
+`${XDG_CACHE_HOME:-~/.cache}/nimlaunch/theme`, never in your configuration
+file, so a config kept in git or on a read-only path stays untouched. Without
+that file, or when it names a theme that no longer exists, NimLaunch uses the
+first theme, `Default`. Delete the file to go back to `Default`.
 
 ## Troubleshooting Theme Persistence
 
@@ -96,7 +90,7 @@ Older generated configuration files contain copies of 13 theme blocks. They keep
 
 ## Built-in Themes
 
-These themes are available out of the box. Use the name shown in each heading with `[theme] last_chosen`, `:t`, or an overriding `[[themes]]` block. The listed colors are background, text, and highlight.
+These themes are available out of the box. Use the name shown in each heading with `:t` or in an overriding `[[themes]]` block. The listed colors are background, text, and highlight.
 
 ### Default
 

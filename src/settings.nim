@@ -276,10 +276,8 @@ proc initLauncherConfig*() =
   loadShortcutsSection(tbl, cfgPath)
   ensureGroupDefaults()
 
-  ## last_chosen (case-insensitive match; fallback to first theme)
+  ## Active theme: the name saved by `:t` (case-insensitive), else the first theme.
   var lastName = ""
-  withSection(tbl, "theme", cfgPath):
-    lastName = sec.getOrDefault("last_chosen").getStr("")
   let savedThemePath = cacheDir() / "theme"
   if fileExists(savedThemePath):
     try:
