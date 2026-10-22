@@ -3,7 +3,7 @@ import std/os
 # Package
 
 packageName   = "nimlaunch"
-version       = "0.11.6"
+version       = "0.12.0"
 author        = "Vyrnexis"
 description   = "NimLaunch in SDL3 for native X11 and Wayland"
 license       = "MIT"
