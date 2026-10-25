@@ -3,16 +3,17 @@
 import std/[os, json, times, options, strutils, algorithm, hashes, sets, syncio]
 import ./[state, parser, paths]
 
-const CacheFormatVersion = 14
+const CacheFormatVersion = 15
 
 ## Derive the desktop-file ID relative to its applications directory.
 proc desktopFileId(baseDir, path: string): string =
   let relative = relativePath(path, baseDir)
   relative.replace(DirSep, '-').replace(AltSep, '-')
 
-## Capture locale and executable search inputs used by desktop parsing.
+## Capture locale, desktop session, and executable search inputs used by desktop parsing.
 proc parsingEnvironmentSignature(): string =
-  [getEnv("LC_ALL"), getEnv("LC_MESSAGES"), getEnv("LANG"), getEnv("PATH")].join("\x1f")
+  [getEnv("LC_ALL"), getEnv("LC_MESSAGES"), getEnv("LANG"), getEnv("PATH"),
+   getEnv("XDG_CURRENT_DESKTOP")].join("\x1f")
 
 ## Describe how one TryExec value resolves on PATH, including the mtime.
 proc tryExecResolution(value: string): string =

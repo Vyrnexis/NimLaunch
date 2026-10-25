@@ -1,5 +1,4 @@
 ## parser.nim — helpers for reading `.desktop` files
-## Mostly identical to NimLaunch, minus X11 dependencies.
 
 import std/[os, strutils, streams, tables, options, sequtils]
 from std/unicode import toLower
@@ -193,6 +192,16 @@ proc localeChain(): seq[string] =
         result.add language & "@" & modifier
       result.add language
 
+proc currentDesktops(): seq[string] =
+  ## Read active desktop names from XDG_CURRENT_DESKTOP (colon-separated).
+  let env = getEnv("XDG_CURRENT_DESKTOP")
+  if env.len == 0:
+    return
+  for d in env.split(':'):
+    let stripped = d.strip()
+    if stripped.len > 0:
+      result.add stripped
+
 proc getBestValue*(entries: Table[string, string], baseKey: string,
     prefs: seq[string]): string =
   ## Return the most specific value for *baseKey* following .desktop rules
@@ -277,6 +286,7 @@ proc parseDesktopFile*(path: string; tryExecOut: var string): Option[DesktopApp]
   ## Criteria:
   ##   • has Name & Exec
   ##   • NoDisplay=false
+  ##   • matches current desktop session (OnlyShowIn / NotShowIn)
   ##   • Terminal=true entries are kept and flagged via `DesktopApp.terminal`
   tryExecOut.setLen(0)
   let fs = newFileStream(path, fmRead)
@@ -285,6 +295,7 @@ proc parseDesktopFile*(path: string; tryExecOut: var string): Option[DesktopApp]
   defer: fs.close()
 
   let prefs = localeChain()
+  let desktops = currentDesktops()
   var currentSection = ""
   var kv = initTable[string, string]()
   var actionSections = initTable[string, Table[string, string]]()
@@ -324,7 +335,13 @@ proc parseDesktopFile*(path: string; tryExecOut: var string): Option[DesktopApp]
   let noDisplay = kv.getOrDefault("NoDisplay", "false").toLowerAscii() == "true"
   let hidden = kv.getOrDefault("Hidden", "false").toLowerAscii() == "true"
   let terminalApp = kv.getOrDefault("Terminal", "false").toLowerAscii() == "true"
+  let onlyShowIn = splitDesktopList(kv.getOrDefault("OnlyShowIn", ""))
+  let notShowIn = splitDesktopList(kv.getOrDefault("NotShowIn", ""))
   let execExpansion = expandExecArgs(exec, name, icon, path)
+
+  let desktopHidden =
+    (onlyShowIn.len > 0 and not desktops.anyIt(it in onlyShowIn)) or
+    desktops.anyIt(it in notShowIn)
 
   let tryExec = kv.getOrDefault("TryExec", "")
   tryExecOut = tryExec
@@ -336,7 +353,8 @@ proc parseDesktopFile*(path: string; tryExecOut: var string): Option[DesktopApp]
 
   let launchable =
     entryType == "Application" and name.len > 0 and exec.len > 0 and
-    execExpansion.valid and not noDisplay and not hidden and not tryExecMissing
+    execExpansion.valid and not noDisplay and not hidden and not tryExecMissing and
+    not desktopHidden
 
   if launchable:
     var desktopActions: seq[DesktopEntryAction] = @[]

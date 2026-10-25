@@ -25,10 +25,10 @@ GPU-backed compositing; icons load through `SDL3_image`.
 - **Toggle hotkey:** launching NimLaunch while it is already open closes the running instance.
 - **Themes:** 84 built-in themes with live preview (`:t`); add or override themes with `[[themes]]`. The chosen theme persists in the cache directory.
 - **Icons:** PNG/SVG icons follow your icon theme (`ICON_THEME`, gsettings, GTK `settings.ini`) and its `Inherits` chain, then hicolor, pixmaps and other installed themes. Decoding runs on a background worker.
-- **Fast startup:** parsed `.desktop` entries are cached and reused until the application directories, locale/`PATH`, or `TryExec` programs change.
+- **Fast startup:** parsed `.desktop` entries are cached and reused until the application directories, desktop session, locale/`PATH`, or `TryExec` programs change.
 - **Mouse:** wheel scrolls the selection, click selects and a second click runs.
 - **Vim mode (optional):** `j/k`, `gg/G`, `/ : !` command bar.
-- **`--dmenu` mode:** pick from stdin items, with `rofi`-style `\0icon\x1f` icon metadata and Shift+Enter to return typed text.
+- **`--dmenu` mode:** pick from stdin items, with `rofi`-style row options (`icon`, `meta`, `nonselectable`), `--index` output and Shift+Enter to return typed text.
 - Window opacity (0.1–1.0), long labels truncated with `…`, and an input line that scrolls to keep the cursor visible.
 
 ## Documentation

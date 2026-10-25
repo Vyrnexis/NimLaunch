@@ -254,3 +254,63 @@ Exec=sh -c "echo \\"action\\""
     check getBestValue(entries, "Name", @["de"]) == "Deutsch"
     check getBestValue(entries, "Name", @["fr"]) == "English"
     check getBestValue(entries, "Name", @[]) == "English"
+
+  test "OnlyShowIn and NotShowIn desktop environment filtering":
+    let hadEnv = existsEnv("XDG_CURRENT_DESKTOP")
+    let oldEnv = getEnv("XDG_CURRENT_DESKTOP")
+    let tmp = getTempDir() / "nimlaunch_test_desktop_env.desktop"
+    defer:
+      if hadEnv: putEnv("XDG_CURRENT_DESKTOP", oldEnv)
+      else: delEnv("XDG_CURRENT_DESKTOP")
+      if fileExists(tmp): removeFile(tmp)
+
+    # OnlyShowIn: match
+    putEnv("XDG_CURRENT_DESKTOP", "GNOME")
+    writeFile(tmp, "[Desktop Entry]\nName=OnlyGnome\nExec=app\nOnlyShowIn=GNOME;\n")
+    check isSome(parseDesktopFile(tmp))
+
+    # OnlyShowIn: no match
+    putEnv("XDG_CURRENT_DESKTOP", "KDE")
+    check isNone(parseDesktopFile(tmp))
+
+    # OnlyShowIn: unset env
+    delEnv("XDG_CURRENT_DESKTOP")
+    check isNone(parseDesktopFile(tmp))
+
+    # NotShowIn: match (hidden)
+    putEnv("XDG_CURRENT_DESKTOP", "GNOME")
+    writeFile(tmp, "[Desktop Entry]\nName=NotGnome\nExec=app\nNotShowIn=GNOME;\n")
+    check isNone(parseDesktopFile(tmp))
+
+    # NotShowIn: no match (shown)
+    putEnv("XDG_CURRENT_DESKTOP", "KDE")
+    check isSome(parseDesktopFile(tmp))
+
+    # NotShowIn: unset env (shown)
+    delEnv("XDG_CURRENT_DESKTOP")
+    check isSome(parseDesktopFile(tmp))
+
+    # Multi-value XDG_CURRENT_DESKTOP (e.g. ubuntu:GNOME)
+    putEnv("XDG_CURRENT_DESKTOP", "ubuntu:GNOME")
+    writeFile(tmp, "[Desktop Entry]\nName=MultiShow1\nExec=app\nOnlyShowIn=GNOME;\n")
+    check isSome(parseDesktopFile(tmp))
+
+    writeFile(tmp, "[Desktop Entry]\nName=MultiShow2\nExec=app\nOnlyShowIn=ubuntu;\n")
+    check isSome(parseDesktopFile(tmp))
+
+    writeFile(tmp, "[Desktop Entry]\nName=MultiShowNoMatch\nExec=app\nOnlyShowIn=KDE;\n")
+    check isNone(parseDesktopFile(tmp))
+
+    writeFile(tmp, "[Desktop Entry]\nName=MultiNotMatch1\nExec=app\nNotShowIn=ubuntu;\n")
+    check isNone(parseDesktopFile(tmp))
+
+    writeFile(tmp, "[Desktop Entry]\nName=MultiNotMatch2\nExec=app\nNotShowIn=GNOME;\n")
+    check isNone(parseDesktopFile(tmp))
+
+    writeFile(tmp, "[Desktop Entry]\nName=MultiNotNoMatch\nExec=app\nNotShowIn=XFCE;\n")
+    check isSome(parseDesktopFile(tmp))
+
+    # Case-sensitive comparison per spec
+    putEnv("XDG_CURRENT_DESKTOP", "GNOME")
+    writeFile(tmp, "[Desktop Entry]\nName=CaseTest\nExec=app\nOnlyShowIn=gnome;\n")
+    check isNone(parseDesktopFile(tmp))
