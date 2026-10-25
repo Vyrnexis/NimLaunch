@@ -1,7 +1,7 @@
 ## app_core.nim — NimLaunch application logic for search, actions, and launch flow.
 
 import std/[os, strutils, tables, sets, uri,
-            algorithm, heapqueue, exitprocs, syncio]
+            algorithm, heapqueue, exitprocs, syncio, times]
 when defined(posix):
   import posix
 from std/unicode import toLower
@@ -342,7 +342,7 @@ template rankByLabel(count: int; queryLower: string; minTier: MatchTier;
     order
 
 proc buildThemeActions(rest: string; defaultIndex: var int): seq[Action] =
-  ## Build theme selection rows and remember the currently active index.
+  ## Build theme selection rows; with an empty query remember the active row.
   defaultIndex = 0
   let ql = toLower(rest)
   let currentThemeLower = ctx.config.themeName.toLowerAscii
@@ -357,7 +357,7 @@ proc buildThemeActions(rest: string; defaultIndex: var int): seq[Action] =
     let name = ctx.themeList[i].name
     result.add Action(kind: akTheme, label: name, exec: name, iconName: "",
         spans: labelSpans(ql, name))
-    if name.toLowerAscii == currentThemeLower:
+    if ql.len == 0 and name.toLowerAscii == currentThemeLower:
       defaultIndex = row
   if result.len == 0:
     result.add Action(kind: akPlaceholder, label: "No matching themes", exec: "")
@@ -495,6 +495,13 @@ proc scoreSearchCandidate*(query: string; queryLower: string; fileName: string;
 
   score
 
+proc narrowSearchPaths*(paths: seq[string]; queryLower: string): seq[string] =
+  ## Keep paths whose full lowercased path contains the query: a superset
+  ## filter for a query that extends the one `paths` was found for.
+  for path in paths:
+    if queryLower in toLower(path):
+      result.add path
+
 proc buildSearchActions(rest: string): seq[Action] =
   ## File search via :s — respects debounce and reuses cached results.
   let sinceEdit = gui.nowMs() - ctx.lastInputChangeMs
@@ -508,7 +515,7 @@ proc buildSearchActions(rest: string): seq[Action] =
   if lastSearchQuery.len > 0 and rest.len >= lastSearchQuery.len and
      rest.startsWith(lastSearchQuery) and lastSearchResults.len > 0 and
      lastSearchResults.len < SearchFdCap:
-    paths = lastSearchResults
+    paths = narrowSearchPaths(lastSearchResults, restLower)
   elif getCachedSearchResults(rest, paths):
     discard
   else:
@@ -525,25 +532,21 @@ proc buildSearchActions(rest: string): seq[Action] =
   let homeDir = homeDirNoSlash()
   let homeDepth = pathDepth(homeDir)
   var topScores = initHeapQueue[(int, string)]()
-  let limit = ctx.config.maxVisibleItems
+  let showCap = max(ctx.config.maxVisibleItems, 40)
   let queryLower = restLower
 
   for idx in 0 ..< paths.len:
     let path = paths[idx]
     let fileName = path.extractFilename
     let score = scoreSearchCandidate(rest, queryLower, fileName, path, homeDir, homeDepth)
-
-    if score > -1_000_000:
-      push(topScores, (score, path))
-      if topScores.len > max(limit, 200): discard pop(topScores)
+    push(topScores, (score, path))
+    if topScores.len > showCap: discard pop(topScores)
 
   var ranked: seq[(int, string)] = @[]
   while topScores.len > 0: ranked.add pop(topScores)
   ranked.reverse()
 
-  let showCap = max(limit, 40)
-  for i, it in ranked:
-    if i >= showCap: break
+  for it in ranked:
     let path = it[1]
     let fileName = path.extractFilename
     let directory = os.parentDir(path)
@@ -561,10 +564,11 @@ proc pollSearchUpdates*(): bool =
     if response.generation == pendingSearchGeneration:
       pendingSearchQuery.setLen(0)
       pendingSearchGeneration = 0
-      cacheSearchResults(response.query, response.paths)
+      if response.complete:
+        cacheSearchResults(response.query, response.paths)
       let (cmd, rest, _, _) = parseCommand(ctx.inputText)
       if cmd == ckSearch:
-        if rest == response.query:
+        if response.complete and rest == response.query:
           lastSearchQuery = response.query
           lastSearchResults = response.paths
         buildActions()
@@ -645,10 +649,11 @@ proc buildDefaultActions(rest: string; defaultIndex: var int): seq[Action] =
           seen.incl i
 
     ## Compute usage boosts once instead of inside the sort comparator.
+    let nowSec = epochTime().int64
     var remaining: seq[(int, int)] = @[]
     for i, app in ctx.allApps:
       if i notin seen:
-        remaining.add (usageBoost(appIdentity(app)), i)
+        remaining.add (usageBoost(appIdentity(app), nowSec), i)
     remaining.sort(proc(a, b: (int, int)): int =
       result = cmp(b[0], a[0])
       if result == 0:
@@ -662,12 +667,13 @@ proc buildDefaultActions(rest: string; defaultIndex: var int): seq[Action] =
     var top = initHeapQueue[(int, int)]()
     let limit = max(DefaultAppSearchCap, ctx.config.maxVisibleItems * 8)
     let queryLower = toLower(rest)
+    let nowSec = epochTime().int64
     var spans: seq[(int, int)] = @[]
     for i, app in ctx.allApps:
       let s = scoreApp(app, queryLower, spans)
       if s != NoMatch:
         let key = appIdentity(app)
-        push(top, (s + recentBoost(key) + usageBoost(key), i))
+        push(top, (s + recentBoost(key) + usageBoost(key, nowSec), i))
         if top.len > limit: discard pop(top)
     var ranked: seq[(int, int)] = @[]
     while top.len > 0: ranked.add pop(top)
@@ -701,9 +707,7 @@ proc updateDisplayState(cmd: CmdKind; defaultIndex: int) =
       ctx.viewOffset = 0
   else:
     let maxIndex = ctx.actions.len - 1
-    var clamped = min(defaultIndex, maxIndex)
-    if cmd == ckTheme and defaultIndex == 0:
-      clamped = min(ctx.selectedIndex, maxIndex)
+    let clamped = min(defaultIndex, maxIndex)
     ctx.selectedIndex = clamped
     let visible = gui.visibleRowCount()
     if clamped >= visible:

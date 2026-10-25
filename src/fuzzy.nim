@@ -14,7 +14,7 @@
 ## fixed stack buffers (texts beyond `MaxTextRunes` runes are matched on their
 ## first `MaxTextRunes` runes; queries beyond `MaxQueryRunes` never match).
 
-import std/[times, tables, unicode]
+import std/[tables, unicode]
 import ./state
 
 proc recentBoost*(key: string): int =
@@ -23,13 +23,13 @@ proc recentBoost*(key: string): int =
   if idx >= 0: return max(0, 200 - idx * 40)
   0
 
-proc usageBoost*(key: string): int =
+proc usageBoost*(key: string; nowSec: int64): int =
   ## Small persistent score layer based on launch frequency and recency.
   let stats = ctx.appUsage.getOrDefault(key)
   if stats.launchCount <= 0 and stats.lastLaunched <= 0:
     return 0
   let frequency = min(stats.launchCount, 20) * 30
-  let ageSeconds = max(0'i64, epochTime().int64 - stats.lastLaunched)
+  let ageSeconds = max(0'i64, nowSec - stats.lastLaunched)
   let recency =
     if ageSeconds < 3_600: 320
     elif ageSeconds < 86_400: 220

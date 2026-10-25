@@ -131,7 +131,6 @@ proc main*() =
     loadApplications()
     loadRecent()
     loadUsage()
-    startSearchWorker()
   buildActions()
 
   resetVimState()

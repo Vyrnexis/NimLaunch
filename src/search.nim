@@ -1,6 +1,8 @@
 ## search.nim — file search helpers and shared constants.
 
-import std/[os, strutils, osproc, streams, tables, unicode, syncio, atomics]
+import std/[os, strutils, osproc, streams, tables, unicode, syncio, atomics, locks]
+when defined(posix):
+  import posix
 import sdl3
 import ./paths
 
@@ -28,6 +30,7 @@ type
     generation*: int
     query*: string
     paths*: seq[string]
+    complete*: bool ## false when the scan was cancelled before finishing
 
 var
   searchRequestChannel: Channel[SearchRequest]
@@ -37,6 +40,10 @@ var
   nextSearchGeneration = 0
   latestRequestedGeneration: Atomic[int]
   searchStopping: Atomic[bool]
+  finderLock: Lock
+  finderPid: int ## pid of the running finder (0 = none), guarded by finderLock
+
+initLock(finderLock)
 
 proc cacheSearchResults*(query: string; results: seq[string]) =
   if query.len == 0:
@@ -82,15 +89,26 @@ proc runFinder(exe: string; args: seq[string]; label: string; generation: int;
     results: var seq[string]): bool =
   let p = startProcess(exe, args = args, options = {poUsePath, poStdErrToStdOut})
   defer: close(p)
+  withLock finderLock:
+    finderPid = p.processID
+  ## The pid stays registered only while the child is unreaped, so a stop
+  ## signal can never reach a recycled pid.
+  proc unregister() =
+    withLock finderLock:
+      finderPid = 0
+  defer: unregister() # runs before close(p), also when an exception escapes
   var line = ""
   var diagnostics: seq[string] = @[]
-  while p.outputStream.readLine(line):
-    if searchCancelled(generation):
-      return true
+  while not searchCancelled(generation) and p.outputStream.readLine(line):
     if line.len > 0 and results.len < SearchFdCap and fileExists(line):
       results.add(line)
     elif line.len > 0 and diagnostics.len < 8:
       diagnostics.add(line)
+  unregister()
+  if searchCancelled(generation):
+    terminate(p)
+    discard p.waitForExit()
+    return true
   if p.waitForExit() == 0:
     return true
   for message in diagnostics:
@@ -148,10 +166,12 @@ proc searchWorker() {.thread.} =
     let request = searchRequestChannel.recv()
     if request.generation < 0:
       break
+    let paths = scanFilesFastInternal(request.query, request.generation)
     searchResponseChannel.send(SearchResponse(
       generation: request.generation,
       query: request.query,
-      paths: scanFilesFastInternal(request.query, request.generation)))
+      paths: paths,
+      complete: not searchCancelled(request.generation)))
     ## Wake the SDL event loop so it polls the response promptly.
     var evt = Event(`type`: EVENT_USER)
     discard pushEvent(evt)
@@ -173,6 +193,11 @@ proc stopSearchWorker*() =
   searchStopping.store(true)
   discard searchRequestChannel.tryRecv()
   searchRequestChannel.send(SearchRequest(generation: -1))
+  when defined(posix):
+    ## Interrupt a running finder so the worker returns promptly.
+    withLock finderLock:
+      if finderPid > 0:
+        discard kill(Pid(finderPid), SIGTERM)
   joinThread(searchThread)
   searchRequestChannel.close()
   searchResponseChannel.close()
@@ -183,10 +208,10 @@ proc stopSearchWorker*() =
 proc requestFileSearch*(query: string): int =
   if not searchThreadStarted:
     startSearchWorker()
-  inc nextSearchGeneration
-  latestRequestedGeneration.store(nextSearchGeneration)
-  let request = SearchRequest(generation: nextSearchGeneration, query: query)
+  let request = SearchRequest(generation: nextSearchGeneration + 1, query: query)
   if searchRequestChannel.trySend(request):
+    nextSearchGeneration = request.generation
+    latestRequestedGeneration.store(request.generation)
     return request.generation
   0
 

@@ -1,5 +1,6 @@
 import std/[assertions, json, os, osproc, unicode, strutils, tables, sequtils]
 import sdl3
+import ../src/themes
 import ../src/[state, layout, parser, fuzzy, app_core, input, proc_utils, utils,
     settings, apps_cache, search, gui, paths]
 
@@ -536,3 +537,26 @@ block dmenu_returns_typed_text_without_match:
   ctx.dmenuMode = false
   ctx.dmenuItems = @[]
   ctx.inputText = ""
+
+block theme_filter_selects_best_match_not_stale_row:
+  resetSearchState()
+  ctx.themeList = BuiltinThemes
+  ctx.config.themeName = "Nord"
+  ctx.inputText = ":t"
+  buildActions()
+  doAssert ctx.actions[ctx.selectedIndex].label == "Nord"
+  ctx.inputText = ":t l"
+  buildActions()
+  doAssert ctx.selectedIndex == 0
+  doAssert ctx.actions[0].kind == akTheme
+  doAssert ctx.themePreviewCurrent == ctx.actions[0].exec
+  endThemePreviewSession(false)
+  ctx.inputText = ""
+  ctx.actions = @[]
+
+block narrowing_search_drops_non_matching_paths:
+  let paths = @["/home/u/Notes.txt", "/home/u/notes/readme.md", "/home/u/other.txt"]
+  doAssert narrowSearchPaths(paths, "notes") ==
+      @["/home/u/Notes.txt", "/home/u/notes/readme.md"]
+  doAssert narrowSearchPaths(paths, "notes.t") == @["/home/u/Notes.txt"]
+  doAssert narrowSearchPaths(paths, "zzz").len == 0
