@@ -1,5 +1,4 @@
 import std/[os, strutils, syncio]
-from std/unicode import toLower
 import sdl3
 import ./[state, app_core, gui, utils, settings, search, input, apps_cache]
 
@@ -23,6 +22,8 @@ Options:
   -c, --config PATH  Use an alternate configuration file
   -p, --prompt TEXT  Override the prompt in --dmenu mode
       --dmenu         Select an item read from standard input
+      --index         With --dmenu, print the 0-based input line index
+  -i                  Accepted for dmenu/rofi compatibility (no effect)
       --dry-run       Print the selected raw action without executing it
       --list-themes   Print configured theme names and exit
       --verbose       Print runtime metrics on shutdown
@@ -48,6 +49,10 @@ proc configureStartupMode() =
       ctx.verboseMode = true
     elif arg == "--dmenu":
       ctx.dmenuMode = true
+    elif arg == "--index":
+      ctx.dmenuIndexMode = true
+    elif arg == "-i":
+      discard # matching is already case-insensitive
     elif arg == "--prompt" or arg == "-p":
       if i < paramCount():
         ctx.dmenuPrompt = paramStr(i + 1)
@@ -66,8 +71,10 @@ proc configureStartupMode() =
 
   if ctx.dmenuPrompt.len > 0 and not ctx.dmenuMode:
     quit "Error: --prompt can only be used with --dmenu."
+  if ctx.dmenuIndexMode and not ctx.dmenuMode:
+    quit "Error: --index can only be used with --dmenu."
 
-# Read non-empty dmenu entries and extract optional Rofi icon metadata.
+# Read non-empty dmenu entries and their Rofi row options.
 proc loadDmenuInput() =
   let raw = stdin.readAll()
   ctx.dmenuItems.setLen(0)
@@ -76,16 +83,7 @@ proc loadDmenuInput() =
     if item.len > 0 and item[^1] == '\r':
       item.setLen(item.len - 1)
     if item.len > 0:
-      var label = item
-      var iconName = ""
-      let nullPos = item.find('\0')
-      if nullPos != -1:
-        label = item[0 ..< nullPos]
-        let remainder = item[nullPos + 1 .. ^1]
-        let prefix = "icon\x1f"
-        if remainder.startsWith(prefix):
-          iconName = remainder[prefix.len .. ^1]
-      ctx.dmenuItems.add DmenuItem(label: label, labelLower: toLower(label), iconName: iconName)
+      ctx.dmenuItems.add parseDmenuLine(item)
 
 ## True while an s: query is waiting for its debounce delay to elapse.
 proc searchBuildPending(): bool =
@@ -112,7 +110,7 @@ proc main*() =
   let startupTimeMs = gui.nowMs()
   configureStartupMode()
 
-  if not ctx.dmenuMode and not ensureSingleInstance():
+  if not ctx.dmenuMode and not ctx.listThemesMode and not ensureSingleInstance():
     # A second launch toggles: close the visible launcher instead of opening another.
     if not closeRunningInstance():
       echo "NimLaunch is already running."
@@ -148,7 +146,8 @@ proc main*() =
   while not ctx.shouldExit:
     ## Sleep until an event, a worker wake-up, or the next timed deadline.
     var haveEvent = waitEventTimeout(ev, nextWaitTimeoutMs())
-    while haveEvent:
+    var needsRedraw = false
+    while haveEvent and not ctx.shouldExit:
       case ev.`type`
       of EVENT_QUIT:
         ctx.shouldExit = true
@@ -157,21 +156,21 @@ proc main*() =
           EVENT_WINDOW_MINIMIZED, EVENT_WINDOW_FOCUS_GAINED, EVENT_WINDOW_FOCUS_LOST,
           EVENT_WINDOW_DISPLAY_CHANGED, EVENT_WINDOW_DISPLAY_SCALE_CHANGED:
         if handleWindowEvent(ev, focus):
-          gui.redrawWindow()
+          needsRedraw = true
       of EVENT_KEY_DOWN:
         if handleKeyDown(ev, focus):
-          gui.redrawWindow()
+          needsRedraw = true
       of EVENT_TEXT_INPUT:
         if handleTextInput(ev, focus):
-          gui.redrawWindow()
+          needsRedraw = true
       of EVENT_TEXT_EDITING:
         if handleTextEditing(ev):
-          gui.redrawWindow()
+          needsRedraw = true
       of EVENT_TEXT_EDITING_CANDIDATES:
         if handleTextEditingCandidates(ev):
-          gui.redrawWindow()
+          needsRedraw = true
       of EVENT_USER:
-        gui.redrawWindow()
+        needsRedraw = true
       else:
         discard
       haveEvent = pollEvent(ev)
@@ -179,11 +178,13 @@ proc main*() =
     if ctx.shouldExit: break
 
     ## Run every check each wake-up so a worker event is never left unpolled.
-    var needsRedraw = processSearchDebounce()
+    if processSearchDebounce():
+      needsRedraw = true
     if pollSearchUpdates():
       needsRedraw = true
     if gui.needsTimedRedraw():
       needsRedraw = true
+    ## One present per wake-up: vsync makes each redraw block.
     if needsRedraw:
       gui.redrawWindow()
 

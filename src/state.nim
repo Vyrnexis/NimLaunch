@@ -8,6 +8,8 @@ type
     label*: string
     labelLower*: string
     iconName*: string
+    meta*, metaLower*: string ## extra search text, never displayed
+    nonselectable*: bool
 
   Rgb* = object
     r*, g*, b*: uint8
@@ -112,6 +114,7 @@ type
     label*: string       # what gets drawn (e.g. "Firefox" or "Run: ls")
     exec*: string        # what actually gets executed or opened
     appIndex*: int = -1  # index into ctx.allApps for akApp/akAppAction; -1 otherwise
+    dmenuIndex*: int = -1 # index into ctx.dmenuItems for stdin rows; -1 for typed text
     iconName*: string
     desktopName*, desktopIcon*: string
     shortcutMode*: ShortcutMode = smUrl
@@ -161,6 +164,7 @@ type
     themePreviewCurrent*: string
     dmenuMode*: bool
     dmenuItems*: seq[DmenuItem]
+    dmenuIndexMode*: bool ## print the input line index instead of its text
     dmenuAccepted*: bool
     dmenuDryRunAccepted*: bool
     dmenuOutput*: string

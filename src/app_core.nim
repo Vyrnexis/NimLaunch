@@ -574,18 +574,49 @@ proc pollSearchUpdates*(): bool =
         buildActions()
         result = true
 
+proc parseDmenuLine*(line: string): DmenuItem =
+  ## Parse `label\0key\x1fvalue\x1fkey\x1fvalue...` (rofi row options).
+  ## Unknown keys are ignored.
+  let nullPos = line.find('\0')
+  result.label = if nullPos == -1: line else: line[0 ..< nullPos]
+  if nullPos != -1:
+    let parts = line[nullPos + 1 .. ^1].split('\x1f')
+    var i = 0
+    while i + 1 < parts.len:
+      case parts[i]
+      of "icon": result.iconName = parts[i + 1]
+      of "meta": result.meta = parts[i + 1]
+      of "nonselectable": result.nonselectable = parts[i + 1] == "true"
+      else: discard
+      i += 2
+  result.labelLower = toLower(result.label)
+  result.metaLower = toLower(result.meta)
+
+proc secondaryScore(best: int): int =
+  ## Rank a substring-or-better hit on secondary text below label matches.
+  if best == NoMatch: return NoMatch
+  let tier = matchTier(best)
+  SecondaryBase + (ord(tier) - ord(mtSubstring)) * SecondaryTierStep +
+    (best - TierBase[tier]) div 2
+
 proc buildDmenuActions(rest: string): seq[Action] =
-  ## Dmenu mode — filter stdin-provided lines and return the raw selection.
+  ## Dmenu mode — filter stdin-provided lines; rows resolve their text via
+  ## `dmenuIndex` when accepted.
   let query = rest
   if query.len == 0:
-    for item in ctx.dmenuItems:
-      result.add Action(kind: akDmenu, label: item.label, exec: item.label, iconName: item.iconName)
+    result = newSeqOfCap[Action](ctx.dmenuItems.len)
+    for i, item in ctx.dmenuItems:
+      result.add Action(kind: akDmenu, label: item.label, dmenuIndex: i,
+          iconName: item.iconName)
   else:
     var top = initHeapQueue[(int, int)]()
     let limit = max(250, ctx.config.maxVisibleItems * 8)
     let queryLower = toLower(query)
     for i, item in ctx.dmenuItems:
-      let s = fuzzyScore(queryLower, item.label, item.labelLower)
+      var s = fuzzyScore(queryLower, item.label, item.labelLower)
+      if s == NoMatch and item.meta.len > 0:
+        s = secondaryScore(fuzzyScore(queryLower, item.meta, item.metaLower,
+            mtSubstring))
       if s != NoMatch:
         push(top, (s, i))
         if top.len > limit:
@@ -597,7 +628,7 @@ proc buildDmenuActions(rest: string): seq[Action] =
     ranked.sort(byScoreThenIndex)
     for item in ranked:
       let dItem = ctx.dmenuItems[item[1]]
-      result.add Action(kind: akDmenu, label: dItem.label, exec: dItem.label,
+      result.add Action(kind: akDmenu, label: dItem.label, dmenuIndex: item[1],
           iconName: dItem.iconName, spans: labelSpans(queryLower, dItem.label))
 
   if result.len == 0:
@@ -615,10 +646,7 @@ proc scoreApp(app: DesktopApp; queryLower: string;
     for i, keyword in app.keywords:
       let lower = if i < app.keywordsLower.len: app.keywordsLower[i] else: ""
       best = max(best, fuzzyScore(queryLower, keyword, lower, mtSubstring))
-    if best != NoMatch:
-      let tier = matchTier(best)
-      result = SecondaryBase + (ord(tier) - ord(mtSubstring)) * SecondaryTierStep +
-        (best - TierBase[tier]) div 2
+    result = secondaryScore(best)
 
 proc buildDefaultActions(rest: string; defaultIndex: var int): seq[Action] =
   ## Default launcher view — MRU when empty, fuzzy search otherwise.
@@ -768,13 +796,30 @@ proc clearInput*() =
   ctx.lastInputChangeMs = gui.nowMs()
   buildActions()
 
+proc resolveDmenuOutput(a: Action): bool =
+  ## Record what dmenu mode prints for `a`. Typed text has no input line, so
+  ## it cannot be reported in --index mode and counts as not accepted.
+  if a.dmenuIndex in 0..<ctx.dmenuItems.len:
+    ctx.dmenuOutput =
+      if ctx.dmenuIndexMode: $a.dmenuIndex else: ctx.dmenuItems[a.dmenuIndex].label
+  elif ctx.dmenuIndexMode:
+    return false
+  else:
+    ctx.dmenuOutput = a.exec
+  ctx.dmenuAccepted = true
+  true
+
 proc performAction*(a: Action) =
+  if a.kind == akDmenu and a.dmenuIndex in 0..<ctx.dmenuItems.len and
+      ctx.dmenuItems[a.dmenuIndex].nonselectable:
+    return
   if ctx.dryRunMode:
-    if a.kind != akQuit:
-      stdout.write(a.exec & "\n")
     if a.kind == akDmenu:
-      ctx.dmenuAccepted = true
-      ctx.dmenuDryRunAccepted = true
+      if resolveDmenuOutput(a):
+        ctx.dmenuDryRunAccepted = true
+        stdout.write(ctx.dmenuOutput & "\n")
+    elif a.kind != akQuit:
+      stdout.write(a.exec & "\n")
     ctx.shouldExit = true
     return
 
@@ -810,8 +855,7 @@ proc performAction*(a: Action) =
     if not success:
       fail("Failed: " & a.label)
   of akDmenu:
-    ctx.dmenuOutput = a.exec
-    ctx.dmenuAccepted = true
+    discard resolveDmenuOutput(a)
   of akShortcut:
     case a.shortcutMode
     of smUrl:

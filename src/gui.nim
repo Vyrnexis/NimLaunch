@@ -1,10 +1,10 @@
 ## gui.nim — SDL3/TTF renderer for NimLaunch2
 ## Provides a thin API mirroring the original GUI (updateGuiColors, redrawWindow, etc.).
 
-import std/[strutils, times, tables, streams, osproc, math]
+import std/[strutils, times, tables, streams, osproc, math, monotimes, os]
 import sdl3
 import sdl3_ttf
-import ./[state, sdl3_image, icon_resolver, layout]
+import ./[state, sdl3_image, icon_resolver, layout, paths]
 
 const
   TTF_STYLE_BOLD = 0x01'u32
@@ -98,6 +98,7 @@ var
   iconThread: Thread[void]
   iconThreadStarted: bool
   iconPendingSet: Table[string, bool]
+  widthCache: Table[string, int] ## text & font -> width; cleared with fonts
 
 proc iconWorker() {.thread.} =
   while true:
@@ -234,10 +235,19 @@ proc loadFont(path: string; size: int; makeBold = false): Font =
 
 proc resolveFontPath(name: string): string =
   ## Resolve a fontconfig name to a file path via fc-match; fall back to defaults.
+  ## The result is cached (name and path) so later launches skip fc-match.
   if name.len == 0:
     return DefaultFontPath
   if name.contains('/'):
     return name
+  let cacheFile = cacheDir() / "font"
+  try:
+    let lines = readFile(cacheFile).splitLines()
+    if lines.len >= 2 and lines[0] == name and lines[1].len > 0 and
+        fileExists(lines[1]):
+      return lines[1]
+  except CatchableError:
+    discard
   try:
     let p = startProcess(
       "fc-match",
@@ -247,6 +257,11 @@ proc resolveFontPath(name: string): string =
     defer: close(p)
     let output = p.outputStream.readAll().strip()
     if output.len > 0:
+      try:
+        createDir(cacheDir())
+        writeFile(cacheFile, name & "\n" & output & "\n")
+      except CatchableError:
+        discard
       return output
   except CatchableError:
     discard
@@ -332,7 +347,8 @@ proc destroyState() =
   sdl3.quit()
 
 proc nowMs*(): int64 =
-  (epochTime() * 1_000).int64
+  ## Monotonic milliseconds; only meaningful for intervals.
+  getMonoTime().ticks div 1_000_000
 
 proc scaledBaseMetrics(scale: float32): UiMetrics =
   ## Metrics holding only the scale and the scaled base-unit sizes.
@@ -520,6 +536,7 @@ proc refreshMetrics*(force = false): bool =
   if iconSizeChanged:
     destroyIconTextures()
   if fontScaleChanged or metricsChanged or displayChanged:
+    widthCache.clear()
     for _, entry in st.textCache:
       if entry.tex != nil: destroyTexture(entry.tex)
     st.textCache.clear()
@@ -658,8 +675,6 @@ proc initGui*() =
   if st.window.isNil:
     quit "[ERROR] createWindow: " & $getError()
 
-  discard setHint("SDL_RENDER_SCALE_QUALITY", "0") # nearest for crisper icons
-
   let rendererProps = createProperties()
   defer:
     if rendererProps != 0:
@@ -689,9 +704,16 @@ proc initGui*() =
 
 proc shutdownGui*() =
   if iconThreadStarted:
+    ## Drop queued requests so the worker only finishes the one in flight.
+    while iconReqChan.tryRecv().dataAvailable:
+      discard
     iconReqChan.send(IconRequest(cacheKey: "SHUTDOWN"))
     joinThread(iconThread)
     iconThreadStarted = false
+    while true:
+      let (avail, res) = iconResChan.tryRecv()
+      if not avail: break
+      if res.surface != nil: destroySurface(res.surface)
     iconReqChan.close()
     iconResChan.close()
   destroyState()
@@ -745,6 +767,16 @@ proc measureText(font: Font; text: string): (int, int) =
   discard getStringSize(font, text.cstring, text.len.csize_t, w, h)
   (w.int, h.int)
 
+proc cachedWidth(font: Font; text: string): int =
+  ## Width of `text`, measured once per font until the cache is reset.
+  let key = text & "|" & $cast[uint](font)
+  if widthCache.hasKey(key):
+    return widthCache[key]
+  if widthCache.len >= 4096:
+    widthCache.clear()
+  result = measureText(font, text)[0]
+  widthCache[key] = result
+
 
 
 proc pumpIconResults*() =
@@ -765,7 +797,7 @@ proc pumpIconResults*() =
       st.iconCache[res.cacheKey] = nil
       continue
       
-    discard setTextureScaleMode(tex, SCALEMODE_NEAREST)
+    discard setTextureScaleMode(tex, SCALEMODE_LINEAR)
     var wf, hf: cfloat
     discard getTextureSize(tex, wf, hf)
     
@@ -862,7 +894,7 @@ proc buildRuns(limit: int; spans: seq[(int, int)]): seq[TextRun] =
 proc runsWidth(text: string; runs: seq[TextRun]): int =
   for run in runs:
     let font = if run.matched: st.fontBold else: st.font
-    result += measureText(font, text[run.a ..< run.b])[0]
+    result += cachedWidth(font, text[run.a ..< run.b])
 
 proc rowTextAvail(rowX, textX: int): int =
   ## Width available for text that starts at `textX` in a row at `rowX`.

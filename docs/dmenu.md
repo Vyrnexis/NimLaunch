@@ -13,7 +13,7 @@ printf 'one\ntwo\nthree\n' | nimlaunch --dmenu
 ## Usage
 
 ```
-nimlaunch --dmenu [-p PROMPT] [--dry-run] [-c CONFIG]
+nimlaunch --dmenu [-p PROMPT] [--index] [-i] [--dry-run] [-c CONFIG]
 ```
 
 | Option | Meaning |
@@ -21,6 +21,8 @@ nimlaunch --dmenu [-p PROMPT] [--dry-run] [-c CONFIG]
 | `--dmenu` | Read rows from stdin and print the selection |
 | `-p`, `--prompt TEXT` | Replace the configured `[input] prompt` for this run; only valid with `--dmenu` |
 | `-c`, `--config PATH` | Use another config file (theme, font, width, icons) |
+| `--index` | Print the 0-based index of the chosen input line instead of its text |
+| `-i` | Accepted for dmenu/rofi compatibility; matching is always case-insensitive |
 | `--dry-run` | Accepted for consistency; the selection is printed once, as usual |
 
 Dmenu mode uses your normal configuration, so it follows your theme, font and
@@ -46,7 +48,24 @@ printf 'Firefox\0icon\x1ffirefox\nNotes\0icon\x1f/home/me/notes.svg\n' | nimlaun
   PNG, SVG or XPM file; the extension may be left off. JPEG is not supported.
 - A row with an unknown icon is shown without one. `[icons] enabled = false`
   hides all icons.
-- Only `icon` is understood; the label is always the text before the NUL.
+- The label is always the text before the NUL.
+
+### Row options
+
+After the NUL come `key`, `value` pairs separated by the unit separator
+`\x1f`, so several can be combined:
+
+```bash
+printf 'Firefox\0icon\x1ffirefox\x1fmeta\x1fweb browser\nSection\0nonselectable\x1ftrue\n' | nimlaunch --dmenu
+```
+
+| Key | Effect |
+|-----|--------|
+| `icon` | Icon name or path (see above) |
+| `meta` | Extra search text. It is matched but never shown, and a row that only matches through `meta` ranks below label matches |
+| `nonselectable` | With value `true` the row is shown but `Enter` on it does nothing |
+
+Unknown keys are ignored.
 
 Use `printf`, not `echo -e`, and never put a NUL in the label itself. Keep
 labels to a single line: a newline would start a new row.
@@ -56,7 +75,9 @@ labels to a single line: a newline would start a new row.
 | Result | stdout | Exit status |
 |--------|--------|-------------|
 | Row chosen with `Enter` | The label, once, followed by a newline (icon data is not printed) | `0` |
+| Row chosen with `--index` | Its 0-based position among the input lines, and a newline | `0` |
 | Free text accepted (see below) | The typed text and a newline | `0` |
+| Free text accepted with `--index` | nothing (typed text has no input line) | `1` |
 | `Esc`, or the window loses focus | nothing | `1` |
 | Bad command line | nothing; an error goes to stderr | `1` |
 

@@ -560,3 +560,73 @@ block narrowing_search_drops_non_matching_paths:
       @["/home/u/Notes.txt", "/home/u/notes/readme.md"]
   doAssert narrowSearchPaths(paths, "notes.t") == @["/home/u/Notes.txt"]
   doAssert narrowSearchPaths(paths, "zzz").len == 0
+
+block dmenu_line_parses_row_options:
+  let plain = parseDmenuLine("Plain")
+  doAssert plain.label == "Plain" and plain.iconName == "" and plain.meta == ""
+  let full = parseDmenuLine("Fire\0icon\x1ffirefox\x1fmeta\x1fWeb Browser\x1fnonselectable\x1ftrue\x1fbogus\x1fx")
+  doAssert full.label == "Fire"
+  doAssert full.iconName == "firefox"
+  doAssert full.meta == "Web Browser" and full.metaLower == "web browser"
+  doAssert full.nonselectable
+  doAssert not parseDmenuLine("A\0nonselectable\x1ffalse").nonselectable
+  doAssert parseDmenuLine("A\0icon").iconName == ""
+
+block dmenu_meta_matches_rank_below_label:
+  resetSearchState()
+  ctx.config = Config(maxVisibleItems: 10, lineHeight: 22)
+  ctx.dmenuMode = true
+  ctx.dmenuItems = @[parseDmenuLine("Zeta\0meta\x1fbrowser"),
+      parseDmenuLine("Browser tool")]
+  ctx.inputText = "browser"
+  buildActions()
+  doAssert rowNames() == @["Browser tool", "Zeta"]
+  doAssert ctx.actions[1].dmenuIndex == 0
+  doAssert ctx.actions[1].spans.len == 0
+  ctx.dmenuMode = false
+  ctx.dmenuItems = @[]
+  ctx.inputText = ""
+
+block dmenu_nonselectable_and_index_output:
+  resetSearchState()
+  ctx.config = Config(maxVisibleItems: 10, lineHeight: 22)
+  ctx.dryRunMode = false
+  ctx.dmenuMode = true
+  ctx.dmenuItems = @[parseDmenuLine("Header\0nonselectable\x1ftrue"),
+      parseDmenuLine("Row")]
+  ctx.inputText = ""
+  buildActions()
+  doAssert ctx.actions.len == 2 and ctx.actions[1].dmenuIndex == 1
+  doAssert ctx.actions[1].exec == ""
+  ctx.shouldExit = false
+  ctx.dmenuAccepted = false
+  performAction(ctx.actions[0])
+  doAssert not ctx.dmenuAccepted and not ctx.shouldExit
+  performAction(ctx.actions[1])
+  doAssert ctx.dmenuAccepted and ctx.dmenuOutput == "Row" and ctx.shouldExit
+  ctx.dmenuIndexMode = true
+  ctx.dmenuAccepted = false
+  performAction(ctx.actions[1])
+  doAssert ctx.dmenuOutput == "1"
+  # Typed text has no input line.
+  ctx.dmenuAccepted = false
+  performAction(Action(kind: akDmenu, exec: "typed"))
+  doAssert not ctx.dmenuAccepted
+  ctx.dmenuIndexMode = false
+  ctx.dmenuMode = false
+  ctx.dmenuItems = @[]
+  ctx.shouldExit = false
+
+block dmenu_empty_query_lists_current_items:
+  resetSearchState()
+  ctx.config = Config(maxVisibleItems: 10, lineHeight: 22)
+  ctx.dmenuMode = true
+  ctx.dmenuItems = @[parseDmenuLine("one")]
+  ctx.inputText = ""
+  buildActions()
+  doAssert rowNames() == @["one"]
+  ctx.dmenuItems = @[parseDmenuLine("two"), parseDmenuLine("three")]
+  buildActions()
+  doAssert rowNames() == @["two", "three"]
+  ctx.dmenuMode = false
+  ctx.dmenuItems = @[]
