@@ -27,7 +27,7 @@ GPU-backed compositing; icons load through `SDL3_image`.
 - **Icons:** PNG/SVG icons follow your icon theme (`ICON_THEME`, gsettings, GTK `settings.ini`) and its `Inherits` chain, then hicolor, pixmaps and other installed themes. Decoding runs on a background worker.
 - **Fast startup:** parsed `.desktop` entries are cached and reused until the application directories, locale/`PATH`, or `TryExec` programs change.
 - **Mouse:** wheel scrolls the selection, click selects and a second click runs.
-- **Vim mode (optional):** `j/k`, `gg/G`, `/ : !` command bar, `:q`.
+- **Vim mode (optional):** `j/k`, `gg/G`, `/ : !` command bar.
 - **`--dmenu` mode:** pick from stdin items, with `rofi`-style `\0icon\x1f` icon metadata and Shift+Enter to return typed text.
 - Window opacity (0.1–1.0), long labels truncated with `…`, and an input line that scrolls to keep the cursor visible.
 
@@ -59,7 +59,7 @@ paru -S nimlaunch-bin
 > `packages/`, so Nimble does not need to download those wrappers separately.
 >
 > Optional helpers:
-> - `fd` and/or `locate` for faster `:s` file search
+> - `fd` or `locate`, required for `:s` file search
 
 ### Arch Linux
 ```bash
@@ -153,10 +153,9 @@ Ctrl+U clears it, and Backspace on an empty bar closes it.
 | ------ | ------- | ----------- |
 | *none* | `fire` | Application search |
 | `:t` | `:t nord` | Browse themes; ↑/↓ previews, Enter keeps the theme |
-| `:s` | `:s notes` | Search files (needs 2+ characters): `fd`, then `locate`, then a depth-3 walk of `$HOME` |
+| `:s` | `:s notes` | Search files (needs 2+ characters); requires `fd` or `locate` (`fd` is tried first) |
 | `:c` | `:c sway` | Search files in the XDG config directory (two levels deep) and open the match |
 | `:r`, `!` | `!htop` | Run a shell command in your terminal |
-| `:q`, `:quit` | `:q` | Offers a "Quit NimLaunch" row; quits only when you press Enter |
 | `:<prefix>` | `:g rust` | Your own `[[shortcuts]]` |
 | `:<group>` | `:sys lock` | Your own `[[groups]]` / shortcut groups |
 
@@ -184,8 +183,7 @@ and [Groups and Shortcuts](docs/groups-and-shortcuts.md) for custom prefixes.
 ## Troubleshooting
 - **Build fails with `cannot open file: sdl3` or `parsetoml`:** build from the
   project root so `config.nims` can add the vendored `packages/` paths.
-- **`:s` is slow:** install `fd` and/or `locate`; without them NimLaunch walks
-  `$HOME` three levels deep.
+- **`:s` says "File search needs fd or locate":** install `fd` or `locate`.
 - **SVG icons are missing:** your `SDL3_image` build needs SVG support.
 - **`--dmenu` looks empty:** pipe newline-separated input, for example
   `printf 'one\ntwo\n' | nimlaunch --dmenu`.

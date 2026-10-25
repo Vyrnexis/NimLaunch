@@ -1,8 +1,6 @@
 ## search.nim — file search helpers and shared constants.
 
-import std/[os, strutils, osproc, streams, tables, unicode, syncio, atomics, locks]
-when defined(posix):
-  import posix
+import std/[os, strutils, osproc, streams, tables, unicode, syncio, atomics, locks, posix]
 import sdl3
 import ./paths
 
@@ -115,48 +113,38 @@ proc runFinder(exe: string; args: seq[string]; label: string; generation: int;
     stderr.writeLine label & " warning: " & message
   results.setLen(0)
 
-## Search for files with cooperative cancellation for the fallback walk.
-proc scanFilesFastInternal(query: string; generation: int): seq[string] =
-  ## Fast file search in order:
-  ##  1) `fd` (fast, respects .gitignore)
-  ##  2) `locate -i` (DB backed, may be stale)
-  ##  3) bounded walk under $HOME (slowest)
-  let home = getHomeDir()
-  let limit = SearchFdCap
+var
+  fdExe {.threadvar.}, locateExe {.threadvar.}: string
+  fileSearchChecked {.threadvar.}: bool
 
+## True when `fd` or `locate` is installed; looked up once per thread on first call.
+proc fileSearchAvailable*(): bool =
+  if not fileSearchChecked:
+    fdExe = findExe("fd")
+    locateExe = findExe("locate")
+    fileSearchChecked = true
+  fdExe.len > 0 or locateExe.len > 0
+
+## Search for files with `fd`, else `locate -i` (DB backed, may be stale).
+## Returns nothing when neither is installed.
+proc scanFilesFastInternal(query: string; generation: int): seq[string] =
+  if not fileSearchAvailable():
+    return
   try:
-    ## --- Prefer `fd` ----------------------------------------------------
-    let fdExe = findExe("fd")
     if fdExe.len > 0:
       let args = @[
         "-i", "--type", "f", "--absolute-path",
         "--color", "never",
-        "--max-results", $limit,
+        "--max-results", $SearchFdCap,
         "--fixed-strings",
-        "--", query, home
+        "--", query, getHomeDir()
       ]
       if runFinder(fdExe, args, "fd", generation, result):
         return
 
-    ## --- Fallback: `locate -i` -----------------------------------------
-    let locExe = findExe("locate")
-    if locExe.len > 0:
-      let args = @["-i", "-l", $limit, "--", query]
-      if runFinder(locExe, args, "locate", generation, result):
-        return
-
-    ## --- Final fallback: bounded walk under $HOME -----------------------
-    let ql = query.toLowerAscii
-    var count = 0
-    for path in walkDirDepth(home, maxDepth = 3, yieldFilter = {pcFile}):
-      if searchCancelled(generation):
-        return
-      if "/." in path: continue
-      if path.toLowerAscii.contains(ql):
-        result.add(path)
-        inc count
-        if count >= limit: break
-
+    if locateExe.len > 0:
+      let args = @["-i", "-l", $SearchFdCap, "--", query]
+      discard runFinder(locateExe, args, "locate", generation, result)
   except CatchableError as e:
     stderr.writeLine "scanFilesFast warning: " & $e.name & ": " & e.msg
 
@@ -193,11 +181,10 @@ proc stopSearchWorker*() =
   searchStopping.store(true)
   discard searchRequestChannel.tryRecv()
   searchRequestChannel.send(SearchRequest(generation: -1))
-  when defined(posix):
-    ## Interrupt a running finder so the worker returns promptly.
-    withLock finderLock:
-      if finderPid > 0:
-        discard kill(Pid(finderPid), SIGTERM)
+  ## Interrupt a running finder so the worker returns promptly.
+  withLock finderLock:
+    if finderPid > 0:
+      discard kill(Pid(finderPid), SIGTERM)
   joinThread(searchThread)
   searchRequestChannel.close()
   searchResponseChannel.close()

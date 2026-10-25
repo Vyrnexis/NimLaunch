@@ -2,12 +2,7 @@
 
 import sdl3, std/strutils
 
-when defined(windows):
-  const ImgLibName* = "SDL3_image.dll"
-elif defined(macosx):
-  const ImgLibName* = "libSDL3_image.dylib"
-else:
-  const ImgLibName* = "libSDL3_image.so.0"
+const ImgLibName* = "libSDL3_image.so.0"
 
 proc loadSizedSvg*(src: IOStream; width, height: cint): ptr Surface {.
     importc: "IMG_LoadSizedSVG_IO", cdecl, dynlib: ImgLibName.}

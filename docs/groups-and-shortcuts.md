@@ -29,7 +29,7 @@ mode   = "url"
 | `stay_open` | `false` | Keep NimLaunch open after the action succeeds (any mode) |
 
 A shortcut needs `base` and either a `prefix` or a `group`; otherwise it is
-skipped. The built-in prefixes `s`, `c`, `t`, `r`, `q` and `quit` always win
+skipped. The built-in prefixes `s`, `c`, `t` and `r` always win
 over a shortcut or group with the same name, and a shortcut prefix wins over a
 group of the same name. NimLaunch prints a warning on stderr for each such
 unreachable name at startup.

@@ -1,4 +1,4 @@
-## gui.nim — SDL3/TTF renderer for NimLaunch2
+## gui.nim — SDL3/TTF renderer for NimLaunch
 ## Provides a thin API mirroring the original GUI (updateGuiColors, redrawWindow, etc.).
 
 import std/[strutils, times, tables, streams, osproc, math, monotimes, os]
@@ -573,14 +573,6 @@ proc currentMetrics(): UiMetrics =
   else:
     result = st.metrics
 
-proc layoutMetrics*(): tuple[logicalW, logicalH, drawW, drawH, lineH, iconSlot,
-    borderW: int; scale, displayScale, pixelDensity, contentScale: float32;
-    displayID: DisplayID] =
-  let m = currentMetrics()
-  (m.logicalWinW, m.logicalWinH, m.drawW, m.drawH, m.lineHeightPx,
-   m.iconSlotPx, m.borderWidthPx, m.scale, m.displayScale, m.pixelDensity,
-   m.contentScale, m.displayID)
-
 ## Map window coordinates (from mouse events) to an action index, or -1.
 proc rowAt*(x, y: float): int =
   let m = currentMetrics()
@@ -595,13 +587,6 @@ proc rowAt*(x, y: float): int =
 ## Return the number of fully visible rows in the current layout.
 proc visibleRowCount*(): int =
   max(1, currentMetrics().visibleRows)
-
-proc windowMetrics*(): tuple[winW, winH, drawW, drawH: int] =
-  ## Return logical window size + renderer drawable size (pixels).
-  let m = currentMetrics()
-  if m.logicalWinW <= 0 or m.logicalWinH <= 0:
-    return (0, 0, 0, 0)
-  (m.logicalWinW, m.logicalWinH, m.drawW, m.drawH)
 
 proc notifyThemeChanged*(name: string) =
   currentThemeName = name
@@ -666,7 +651,7 @@ proc initGui*() =
   defer:
     if props != 0:
       destroyProperties(props)
-  discard setStringProperty(props, PROP_WINDOW_CREATE_TITLE_STRING, "NimLaunch SDL3")
+  discard setStringProperty(props, PROP_WINDOW_CREATE_TITLE_STRING, "NimLaunch")
   discard setNumberProperty(props, PROP_WINDOW_CREATE_X_NUMBER,
       if ctx.config.centerWindow: computeAlignedWindowX(ctx.config.winWidth, ctx.config.displayIndex).int64
       else: ctx.config.positionX.int64)
@@ -1157,6 +1142,22 @@ proc presentFrame() =
     discard syncWindow(st.window)
     st.windowRaised = true
   discard renderPresent(st.renderer)
+
+when WindowDebug:
+  proc layoutMetrics*(): tuple[logicalW, logicalH, drawW, drawH, lineH, iconSlot,
+      borderW: int; scale, displayScale, pixelDensity, contentScale: float32;
+      displayID: DisplayID] =
+    let m = currentMetrics()
+    (m.logicalWinW, m.logicalWinH, m.drawW, m.drawH, m.lineHeightPx,
+     m.iconSlotPx, m.borderWidthPx, m.scale, m.displayScale, m.pixelDensity,
+     m.contentScale, m.displayID)
+
+  proc windowMetrics*(): tuple[winW, winH, drawW, drawH: int] =
+    ## Return logical window size + renderer drawable size (pixels).
+    let m = currentMetrics()
+    if m.logicalWinW <= 0 or m.logicalWinH <= 0:
+      return (0, 0, 0, 0)
+    (m.logicalWinW, m.logicalWinH, m.drawW, m.drawH)
 
 proc redrawWindow*() =
   if st.isNil: return

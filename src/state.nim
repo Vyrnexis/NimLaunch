@@ -1,5 +1,4 @@
 ## state.nim — core data definitions and runtime state
-## Derived from NimLaunch X11 version, adapted to remove X11 types.
 
 import std/tables
 # ── Data structures ─────────────────────────────────────────────────────
@@ -44,29 +43,32 @@ type
     launchCount*: int
     lastLaunched*: int64
 
-  ## Launcher configuration populated by initLauncherConfig.
+  ## Launcher configuration; field defaults are the built-in settings.
   Config* = object
     # Window geometry ----------------------------------------------------
-    winWidth*: int
-    opacity*: float          ## 0.1 - 1.0 window opacity (SDL window)
-    lineHeight*, maxVisibleItems*: int
-    centerWindow*: bool
-    positionX*, positionY*: int
-    verticalAlign*: string   ## "top" | "center" | "one-third"
-    displayIndex*: int       ## display index for centered positioning
+    winWidth*: int = 500
+    opacity*: float = 1.0    ## 0.1 - 1.0 window opacity (SDL window)
+    lineHeight*: int = 22
+    maxVisibleItems*: int = 10
+    centerWindow*: bool = true
+    positionX*: int = 20
+    positionY*: int = 500
+    verticalAlign*: string = "one-third" ## "top" | "center" | "one-third"
+    displayIndex*: int = 0   ## display index for centered positioning
 
     # Colours as hex strings (resolved to SDL colours later) -------------
     bgColorHex*, fgColorHex*: string
     highlightBgColorHex*, highlightFgColorHex*: string
     borderColorHex*: string
-    borderWidth*: int
-    matchFgColorHex*: string ## color for matched letters (e.g. "#FF00FF")
-    showIcons*: bool
-    showClock*: bool
+    borderWidth*: int = 2
+    matchFgColorHex*: string = "#f8c291" ## color for matched letters
+    showIcons*: bool = true
+    showClock*: bool = true
 
     # Prompt / font / theme / terminal ----------------------------------
-    prompt*, cursor*: string
-    fontName*: string
+    prompt*: string = "> "
+    cursor*: string = "_"
+    fontName*: string = "Dejavu:size=16"
     themeName*: string
     terminalExe*: string     ## preferred terminal program
     vimMode*: bool
@@ -106,7 +108,6 @@ type
     akFile,     # `:s` file search (open with default app)
     akShortcut, # configurable shortcut (URL/shell/file)
     akTheme,    # `:t` Theme selector
-    akQuit,     # `:q` exit NimLaunch
     akPlaceholder
 
   ## A single selectable entry in the launcher.

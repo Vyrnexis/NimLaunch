@@ -1,6 +1,6 @@
 ## proc_utils.nim — process spawning, terminal selection, and file-opening helpers.
 
-import std/[os, osproc, strutils, syncio]
+import std/[os, osproc, strutils, syncio, sequtils]
 import ./[state, parser]
 
 proc whichExists*(name: string): bool =
@@ -91,22 +91,6 @@ proc chooseTerminal*(): string =
       return t
   "" # headless
 
-proc hasHoldFlagLocal*(args: seq[string]): bool =
-  ## Detect common "keep window open" flags passed to terminals.
-  for a in args:
-    case a
-    of "--hold", "-hold", "--keep-open", "--wait", "--noclose",
-       "--stay-open", "--keep", "--keepalive":
-      return true
-    else:
-      discard
-  false
-
-proc appendShellArgs*(argv: var seq[string]; shExe: string; shArgs: seq[string]) =
-  ## Append shell executable and its arguments to `argv`.
-  argv.add shExe
-  for a in shArgs: argv.add a
-
 proc terminalCommandArgs*(base: string; termArgs, command: seq[string];
                           wezSeparator = false): seq[string] =
   ## Place `command` after the terminal-specific separator for major terminals.
@@ -125,13 +109,6 @@ proc terminalCommandArgs*(base: string; termArgs, command: seq[string];
     argv.add "-e"
   argv.add command
   argv
-
-proc buildTerminalArgs*(base: string; termArgs: seq[string]; shExe: string;
-                       shArgs: seq[string]): seq[string] =
-  ## Normalize command-line to launch a shell inside major terminals.
-  var command: seq[string] = @[]
-  appendShellArgs(command, shExe, shArgs)
-  terminalCommandArgs(base, termArgs, command)
 
 proc buildShellCommand*(cmd, shExe: string; hold = false):
     tuple[fullCmd: string; shArgs: seq[string]] =
@@ -161,9 +138,11 @@ proc runCommand*(cmd: string): bool =
 
   var termArgs = if parts.len > 1: parts[1..^1] else: @[]
   let base = exe.extractFilename()
-  let hold = hasHoldFlagLocal(termArgs)
+  ## Terminals started with a "keep open" flag need no hold prompt.
+  let hold = termArgs.anyIt(it in ["--hold", "-hold", "--keep-open", "--wait",
+      "--noclose", "--stay-open", "--keep", "--keepalive"])
   let (_, shArgs) = buildShellCommand(cmd, shExe, hold)
-  let argv = buildTerminalArgs(base, termArgs, shExe, shArgs)
+  let argv = terminalCommandArgs(base, termArgs, @[shExe] & shArgs)
   try:
     discard startProcess(exePath, args = argv,
                          options = {poDaemon, poParentStreams})

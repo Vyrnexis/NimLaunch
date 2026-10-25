@@ -1,4 +1,4 @@
-# ── Defaults as TOML text (same as NimLaunch) ───────────────────────────
+# ── Default config file written on first run ────────────────────────────
 const defaultToml* = """
 # ==========================
 # NimLaunch Configuration
@@ -44,7 +44,7 @@ enabled = true                    # Set to false to hide icons in the list
 # Groups
 # ==========================
 # Define group names used by [[shortcuts]]. Avoid the built-in command names
-# (s, c, t, r, q, quit) and shortcut prefixes: those always win, and NimLaunch
+# (s, c, t, r) and shortcut prefixes: those always win, and NimLaunch
 # warns on stderr when a group can never be reached.
 # query_mode = "filter" (default) or "pass".
 

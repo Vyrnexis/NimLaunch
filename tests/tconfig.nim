@@ -1,4 +1,5 @@
 import std/[unittest, os, strutils, tables, sets, sequtils]
+import parsetoml as toml
 import ../src/[state, settings, app_core, paths, themes]
 
 const LegacyThemeBlocks = """
@@ -308,7 +309,7 @@ name = "s"
 [[groups]]
 name = "web"
 [[shortcuts]]
-prefix = ":q"
+prefix = ":r"
 base = "x"
 [[shortcuts]]
 prefix = ":web"
@@ -320,7 +321,7 @@ base = "z"
     let found = nameConflicts()
     check found.len == 3
     check found.anyIt("group \"s\"" in it)
-    check found.anyIt("prefix \"q\"" in it)
+    check found.anyIt("prefix \"r\"" in it)
     check found.anyIt("prefix \"web\"" in it)
 
   test "ignore the removed pollIntervalMs setting":
@@ -350,3 +351,37 @@ base = "z"
     check dirs[0] == customData / "applications"
     check userConfigHome() == $DirSep
     check configDir() == $DirSep / "nimlaunch"
+
+  test "defaultToml values equal the in-code defaults":
+    let tbl = toml.parseString(defaultToml)
+    let d = Config()
+    let win = tbl["window"].getTable()
+    check win["width"].getInt() == d.winWidth
+    check win["line_height"].getInt() == d.lineHeight
+    check win["show_clock"].getBool() == d.showClock
+    check win["opacity"].getFloat() == d.opacity
+    check win["max_visible_items"].getInt() == d.maxVisibleItems
+    check win["center"].getBool() == d.centerWindow
+    check win["position_x"].getInt() == d.positionX
+    check win["position_y"].getInt() == d.positionY
+    check win["vertical_align"].getStr() == d.verticalAlign
+    check win["display"].getInt() == d.displayIndex
+    check tbl["font"]["fontname"].getStr() == d.fontName
+    let inp = tbl["input"].getTable()
+    check inp["prompt"].getStr() == d.prompt
+    check inp["cursor"].getStr() == d.cursor
+    check inp["vim_mode"].getBool() == d.vimMode
+    check tbl["terminal"]["program"].getStr() == d.terminalExe
+    check tbl["border"]["width"].getInt() == d.borderWidth
+    check tbl["icons"]["enabled"].getBool() == d.showIcons
+
+  test "broken config keeps defaults and the default sys group":
+    let cfgPath = getTempDir() / "nimlaunch_test_broken.toml"
+    defer:
+      if fileExists(cfgPath): removeFile(cfgPath)
+    writeFile(cfgPath, "[window\nwidth = 777\n")
+    ctx.configOverridePath = cfgPath
+    initLauncherConfig()
+    check ctx.config.winWidth == Config().winWidth
+    check ctx.groupQueryModes.hasKey("sys")
+    check ctx.shortcuts.len > 0

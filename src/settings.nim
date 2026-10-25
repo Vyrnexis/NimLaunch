@@ -157,7 +157,7 @@ proc ensureGroupDefaults() =
     if not ctx.groupQueryModes.hasKey(sc.group):
       ctx.groupQueryModes[sc.group] = gqmFilter
 
-const BuiltinKeywords = ["s", "c", "t", "r", "q", "quit"]
+const BuiltinKeywords = ["s", "c", "t", "r"]
 
 proc nameConflicts*(): seq[string] =
   ## Describe groups and shortcut prefixes that a built-in command or a
@@ -179,27 +179,8 @@ proc nameConflicts*(): seq[string] =
 
 proc initLauncherConfig*() =
   ## Initialize defaults, read TOML, apply last theme, compute geometry.
-  ctx.config = Config() # zero-init
+  ctx.config = Config()
   ctx.groupQueryModes = initTable[string, GroupQueryMode]()
-
-  ## In-code defaults
-  ctx.config.winWidth = 500
-  ctx.config.lineHeight = 22
-  ctx.config.maxVisibleItems = 10
-  ctx.config.centerWindow = true
-  ctx.config.positionX = 20
-  ctx.config.positionY = 500
-  ctx.config.verticalAlign = "one-third"
-  ctx.config.displayIndex = 0
-  ctx.config.fontName = "Dejavu:size=16"
-  ctx.config.prompt = "> "
-  ctx.config.cursor = "_"
-  ctx.config.opacity = 1.0
-  ctx.config.borderWidth = 2
-  ctx.config.matchFgColorHex = "#f8c291"
-  ctx.config.vimMode = false
-  ctx.config.showIcons = true
-  ctx.config.showClock = true
 
   ## Ensure TOML exists
   let cfgDir = configDir()
@@ -224,7 +205,7 @@ proc initLauncherConfig*() =
     stderr.writeLine "  " & $e.name & ": " & e.msg
     stderr.writeLine "  NimLaunch is ignoring this file and using built-in defaults for this session."
     stderr.writeLine "  Fix the TOML file and restart NimLaunch to restore your saved settings."
-    tbl = toml.parseString(defaultToml)
+    tbl = toml.newTTable()
 
   ## window
   withSection(tbl, "window", cfgPath):
@@ -296,8 +277,11 @@ proc initLauncherConfig*() =
     if not replaced:
       ctx.themeList.add userTheme
 
-  loadGroupsSection(tbl, cfgPath)
-  loadShortcutsSection(tbl, cfgPath)
+  ## A broken config keeps the in-code settings and built-in themes; only the
+  ## default shortcuts and groups come from `defaultToml`.
+  let listsTbl = if configValid: tbl else: toml.parseString(defaultToml)
+  loadGroupsSection(listsTbl, cfgPath)
+  loadShortcutsSection(listsTbl, cfgPath)
   ensureGroupDefaults()
   for msg in nameConflicts():
     stderr.writeLine "NimLaunch warning: " & msg

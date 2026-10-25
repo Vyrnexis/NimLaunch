@@ -54,21 +54,19 @@ proc pasteInputText*(): bool =
   appendTextInput(pasted)
   true
 
-proc handleTextEditing*(ev: Event): bool =
-  if not gui.ownsWindowID(ev.edit.windowID):
-    return false
-  when gui.WindowDebug:
+when gui.WindowDebug:
+  proc handleTextEditing*(ev: Event) =
+    if not gui.ownsWindowID(ev.edit.windowID):
+      return
     let preview = if ev.edit.text == nil: "" else: $ev.edit.text
     echo "[window-debug] text-editing text=\"", preview,
         "\" start=", ev.edit.start,
         " length=", ev.edit.length,
         " vimActive=", ctx.vim.active
-  false
 
-proc handleTextEditingCandidates*(ev: Event): bool =
-  if not gui.ownsWindowID(ev.edit_candidates.windowID):
-    return false
-  when gui.WindowDebug:
+  proc handleTextEditingCandidates*(ev: Event) =
+    if not gui.ownsWindowID(ev.edit_candidates.windowID):
+      return
     var sample: seq[string] = @[]
     let total = max(0, ev.edit_candidates.num_candidates)
     let limit = min(total, 3)
@@ -80,7 +78,6 @@ proc handleTextEditingCandidates*(ev: Event): bool =
         " selected=", ev.edit_candidates.selected_candidate,
         " horizontal=", ev.edit_candidates.horizontal,
         " sample=", sample.join(" | ")
-  false
 
 proc shouldExitOnFocusLoss*(fs: FocusState): bool =
   ## Exit only after initial grace period and a small delay after last focus gain.
@@ -243,9 +240,6 @@ proc executeVimCommand*() =
   let trimmed = (ctx.vim.prefix & ctx.vim.buffer).strip()
   closeVimCommand(preserveBuffer = false)
   if trimmed.len == 0:
-    return
-  if trimmed == ":q":
-    ctx.shouldExit = true
     return
   ctx.inputText = trimmed
   ctx.inputCursor = trimmed.len

@@ -1,16 +1,13 @@
 ## app_core.nim — NimLaunch application logic for search, actions, and launch flow.
 
 import std/[os, strutils, tables, sets, uri,
-            algorithm, heapqueue, exitprocs, syncio, times]
-when defined(posix):
-  import posix
+            algorithm, heapqueue, exitprocs, syncio, times, posix]
 from std/unicode import toLower
 import ./[state, parser, gui, utils, settings, paths, fuzzy, proc_utils, search]
 
-when defined(posix):
-  when not declared(flock):
-    proc flock(fd: cint; operation: cint): cint {.importc,
-        header: "<sys/file.h>".}
+when not declared(flock):
+  proc flock(fd: cint; operation: cint): cint {.importc,
+      header: "<sys/file.h>".}
 
 # ── Module-local globals ────────────────────────────────────────────────
 const
@@ -38,8 +35,7 @@ var
   lockFilePath = ""
   pendingSearchQuery = ""
   pendingSearchGeneration = 0
-when defined(posix):
-  var lockFd: cint = -1
+var lockFd: cint = -1
 
 proc buildActions*()
 
@@ -117,96 +113,64 @@ proc addDesktopActionRows(rows: var seq[Action]; appIndex: int;
     )
 
 # ── Single-instance helpers ────────────────────────────────────────────
-when defined(posix):
-  const
-    LOCK_EX = 2.cint
-    LOCK_NB = 4.cint
-    LOCK_UN = 8.cint
+const
+  LOCK_EX = 2.cint
+  LOCK_NB = 4.cint
+  LOCK_UN = 8.cint
 
-  proc releaseSingleInstanceLock() =
-    ## Release advisory file lock and cleanup lock file descriptor.
-    if lockFd >= 0:
-      discard flock(lockFd, LOCK_UN)
-      discard close(lockFd)
-      lockFd = -1
+proc releaseSingleInstanceLock() =
+  ## Release advisory file lock and cleanup lock file descriptor.
+  if lockFd >= 0:
+    discard flock(lockFd, LOCK_UN)
+    discard close(lockFd)
+    lockFd = -1
 
-  proc ensureSingleInstance*(): bool =
-    ## Obtain an exclusive advisory lock; return false if another instance owns it.
-    let cacheDirPath = cacheDir()
-    try:
-      createDir(cacheDirPath)
-    except CatchableError:
-      discard
-    lockFilePath = cacheDirPath / "nimlaunch.lock"
+proc ensureSingleInstance*(): bool =
+  ## Obtain an exclusive advisory lock; return false if another instance owns it.
+  let cacheDirPath = cacheDir()
+  try:
+    createDir(cacheDirPath)
+  except CatchableError:
+    discard
+  lockFilePath = cacheDirPath / "nimlaunch.lock"
 
-    var openFlags = O_RDWR or O_CREAT
-    when declared(O_CLOEXEC):
-      openFlags = openFlags or O_CLOEXEC
-    let fd = open(lockFilePath.cstring, openFlags, 0o600)
-    if fd < 0:
-      stderr.writeLine "NimLaunch warning: unable to open lock file at " & lockFilePath
-      return true
+  var openFlags = O_RDWR or O_CREAT
+  when declared(O_CLOEXEC):
+    openFlags = openFlags or O_CLOEXEC
+  let fd = open(lockFilePath.cstring, openFlags, 0o600)
+  if fd < 0:
+    stderr.writeLine "NimLaunch warning: unable to open lock file at " & lockFilePath
+    return true
 
-    if flock(fd, LOCK_EX or LOCK_NB) != 0:
-      discard close(fd)
+  if flock(fd, LOCK_EX or LOCK_NB) != 0:
+    discard close(fd)
+    return false
+
+  discard ftruncate(fd, 0)
+  discard lseek(fd, 0, 0)
+  let pidStr = $getCurrentProcessId() & "\n"
+  discard write(fd, pidStr.cstring, pidStr.len.cint)
+
+  lockFd = fd
+  addExitProc(releaseSingleInstanceLock)
+  true
+
+proc closeRunningInstance*(): bool =
+  ## Ask the instance that holds the lock to quit (hotkey toggle behaviour).
+  ## SDL turns SIGTERM into EVENT_QUIT, so the other instance shuts down cleanly.
+  var pid = 0
+  try:
+    pid = parseInt(readFile(lockFilePath).strip())
+  except CatchableError:
+    return false
+  if pid <= 0 or pid == getCurrentProcessId():
+    return false
+  try:
+    if readFile("/proc/" & $pid & "/comm").strip() != "nimlaunch":
       return false
-
-    discard ftruncate(fd, 0)
-    discard lseek(fd, 0, 0)
-    let pidStr = $getCurrentProcessId() & "\n"
-    discard write(fd, pidStr.cstring, pidStr.len.cint)
-
-    lockFd = fd
-    addExitProc(releaseSingleInstanceLock)
-    true
-
-  proc closeRunningInstance*(): bool =
-    ## Ask the instance that holds the lock to quit (hotkey toggle behaviour).
-    ## SDL turns SIGTERM into EVENT_QUIT, so the other instance shuts down cleanly.
-    var pid = 0
-    try:
-      pid = parseInt(readFile(lockFilePath).strip())
-    except CatchableError:
-      return false
-    if pid <= 0 or pid == getCurrentProcessId():
-      return false
-    try:
-      if readFile("/proc/" & $pid & "/comm").strip() != "nimlaunch":
-        return false
-    except CatchableError:
-      discard # no procfs: trust the lock holder's PID
-    kill(Pid(pid), SIGTERM) == 0
-else:
-  proc releaseSingleInstanceLock() =
-    ## Clean up lock file sentinel.
-    if lockFilePath.len > 0 and fileExists(lockFilePath):
-      try:
-        removeFile(lockFilePath)
-      except CatchableError:
-        discard
-
-  proc ensureSingleInstance*(): bool =
-    ## Basic file sentinel fallback for non-POSIX targets.
-    let cacheDirPath = cacheDir()
-    try:
-      createDir(cacheDirPath)
-    except CatchableError:
-      discard
-    lockFilePath = cacheDirPath / "nimlaunch.lock"
-
-    if fileExists(lockFilePath):
-      return false
-
-    try:
-      writeFile(lockFilePath, $getCurrentProcessId())
-      addExitProc(releaseSingleInstanceLock)
-    except CatchableError:
-      discard
-    true
-
-  proc closeRunningInstance*(): bool =
-    ## Signalling another instance is only supported on POSIX.
-    false
+  except CatchableError:
+    discard # no procfs: trust the lock holder's PID
+  kill(Pid(pid), SIGTERM) == 0
 
 # ── Command parsing / action helpers ───────────────────────────────────
 type CmdKind* = enum
@@ -217,8 +181,7 @@ type CmdKind* = enum
   ckSearch,   # `s:` fast file search
   ckGroup,    # user-defined group prefix
   ckShortcut, # custom shortcuts (e.g. :g, :wiki)
-  ckRun,      # raw `r:` command
-  ckQuit      # `:q` or `:quit` to exit
+  ckRun       # raw `r:` command
 
 proc takePrefix(input, pfx: string; rest: var string): bool =
   ## Consume a command prefix and return the remainder (trimmed).
@@ -250,7 +213,6 @@ proc parseCommand*(inputText: string): (CmdKind, string, int, string) =
     of "c": return (ckConfig, rest, -1, "")
     of "t": return (ckTheme, rest, -1, "")
     of "r": return (ckRun, rest, -1, "")
-    of "q", "quit": return (ckQuit, rest, -1, "")
     else:
       for i, sc in ctx.shortcuts:
         if sc.prefix.len == 0:
@@ -380,13 +342,10 @@ proc loadConfigFiles() =
     ctx.configFilesLoaded = false
     echo "loadConfigFiles warning: ", e.name, " ", e.msg
 
-proc ensureConfigFilesLoaded() =
-  if not ctx.configFilesLoaded:
-    loadConfigFiles()
-
 proc buildConfigActions(rest: string): seq[Action] =
   ## Build configuration file results under ~/.config.
-  ensureConfigFilesLoaded()
+  if not ctx.configFilesLoaded:
+    loadConfigFiles()
   let ql = toLower(rest)
   var order: seq[int] = @[]
   if ql.len == 0:
@@ -461,10 +420,6 @@ proc buildRunActions(rest: string): seq[Action] =
   @[Action(kind: akRun, label: prefix & rest, exec: rest, iconName: "",
       spans: @[(prefix.len, rest.len)])]
 
-proc pathDepth(path: string): int =
-  ## Count directory separators in path.
-  path.count('/')
-
 proc scoreSearchCandidate*(query: string; queryLower: string; fileName: string;
                            path: string; homeDir: string; homeDepth: int): int =
   ## Score a file-search hit; `homeDir` must not end with a slash.
@@ -484,7 +439,7 @@ proc scoreSearchCandidate*(query: string; queryLower: string; fileName: string;
     score += 800
     let directory = path[0 ..< max(0, path.len - fileName.len)].strip(
         leading = false, chars = {'/'})
-    let relativeDepth = max(0, pathDepth(directory) - homeDepth)
+    let relativeDepth = max(0, directory.count('/') - homeDepth)
     score -= min(relativeDepth, 10) * 200
     if directory == homeDir:
       score += 5_000
@@ -504,6 +459,9 @@ proc narrowSearchPaths*(paths: seq[string]; queryLower: string): seq[string] =
 
 proc buildSearchActions(rest: string): seq[Action] =
   ## File search via :s — respects debounce and reuses cached results.
+  if not fileSearchAvailable():
+    return @[Action(kind: akPlaceholder, label: "File search needs fd or locate",
+        exec: "")]
   let sinceEdit = gui.nowMs() - ctx.lastInputChangeMs
   if rest.len < 2 or sinceEdit < SearchDebounceMs:
     return @[Action(kind: akPlaceholder, label: "Searching…", exec: "")]
@@ -530,7 +488,7 @@ proc buildSearchActions(rest: string): seq[Action] =
   lastSearchResults = paths
 
   let homeDir = homeDirNoSlash()
-  let homeDepth = pathDepth(homeDir)
+  let homeDepth = homeDir.count('/')
   var topScores = initHeapQueue[(int, string)]()
   let showCap = max(ctx.config.maxVisibleItems, 40)
   let queryLower = restLower
@@ -777,8 +735,6 @@ proc buildActions*() =
     nextActions = buildSearchActions(rest)
   of ckRun:
     nextActions = buildRunActions(rest)
-  of ckQuit:
-    nextActions = @[Action(kind: akQuit, label: "Quit NimLaunch", exec: "")]
   else:
     discard
 
@@ -819,7 +775,7 @@ proc performAction*(a: Action) =
       if resolveDmenuOutput(a):
         ctx.dmenuDryRunAccepted = true
         stdout.write(ctx.dmenuOutput & "\n")
-    elif a.kind != akQuit:
+    else:
       stdout.write(a.exec & "\n")
     ctx.shouldExit = true
     return
@@ -887,8 +843,6 @@ proc performAction*(a: Action) =
     clearInput()
     gui.redrawWindow()
     exitAfter = false
-  of akQuit:
-    discard
   of akPlaceholder:
     exitAfter = false
   if a.kind == akDmenu:

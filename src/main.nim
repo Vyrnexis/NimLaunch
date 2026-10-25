@@ -170,11 +170,11 @@ proc main*() =
         if handleMouseButton(ev):
           needsRedraw = true
       of EVENT_TEXT_EDITING:
-        if handleTextEditing(ev):
-          needsRedraw = true
+        when gui.WindowDebug:
+          handleTextEditing(ev)
       of EVENT_TEXT_EDITING_CANDIDATES:
-        if handleTextEditingCandidates(ev):
-          needsRedraw = true
+        when gui.WindowDebug:
+          handleTextEditingCandidates(ev)
       of EVENT_USER:
         needsRedraw = true
       else:

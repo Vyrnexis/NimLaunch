@@ -423,32 +423,6 @@ block background_search_returns_without_blocking_request:
   doAssert response.generation == generation
   doAssert response.query == "nothing-matches-this-query"
 
-block quit_command_requires_activation:
-  ctx.config = Config(maxVisibleItems: 10, lineHeight: 22)
-  ctx.dmenuMode = false
-  ctx.shouldExit = false
-  ctx.shortcuts = @[Shortcut(prefix: "qr", label: "QR", base: "qrencode",
-      mode: smShell, group: "qr")]
-  ctx.groupQueryModes["qr"] = gqmFilter
-  ctx.inputText = ":q"
-  buildActions()
-  doAssert not ctx.shouldExit
-  doAssert ctx.actions.len == 1
-  doAssert ctx.actions[0].kind == akQuit
-  ctx.inputText = ":qr"
-  buildActions()
-  doAssert not ctx.shouldExit
-  doAssert ctx.actions.len == 1
-  doAssert ctx.actions[0].kind == akShortcut
-  ctx.inputText = ":q"
-  buildActions()
-  activateCurrentSelection()
-  doAssert ctx.shouldExit
-  ctx.shouldExit = false
-  ctx.shortcuts = @[]
-  ctx.groupQueryModes.clear()
-  ctx.inputText = ""
-
 block vim_mode_keeps_navigation_keys:
   ctx.config = Config(maxVisibleItems: 10, lineHeight: 22, vimMode: true)
   ctx.vim = VimCommandState()
@@ -492,8 +466,6 @@ block terminal_desktop_apps_use_terminal_argv:
   doAssert terminalCommandArgs("wezterm", @[], cmd, wezSeparator = true) ==
       @["start", "--", "htop", "--tree"]
   doAssert terminalCommandArgs("wezterm", @[], cmd) == @["start", "htop", "--tree"]
-  doAssert buildTerminalArgs("kitty", @[], "/bin/sh", @["-c", "x"]) ==
-      @["-e", "/bin/sh", "-c", "x"]
 
 block dmenu_returns_typed_text_without_match:
   ctx.config = Config(maxVisibleItems: 10, lineHeight: 22)
@@ -689,11 +661,15 @@ block row_hit_testing_maps_clicks_to_actions:
   ctx.config = Config(winWidth: 500, maxVisibleItems: 10, lineHeight: 22)
   ctx.actions = @[Action(kind: akRun, label: "a"), Action(kind: akRun, label: "b")]
   ctx.viewOffset = 0
-  let lineH = float(layoutMetrics().lineH)
   var firstY = 0.0
   while rowAt(10.0, firstY) != 0:
     firstY += 1.0
     doAssert firstY < 1000.0
+  var secondY = firstY
+  while rowAt(10.0, secondY) != 1:
+    secondY += 1.0
+    doAssert secondY < 2000.0
+  let lineH = secondY - firstY
   doAssert firstY > 0.0 and rowAt(10.0, firstY - 1.0) == -1
   doAssert rowAt(10.0, firstY + lineH) == 1
   doAssert rowAt(10.0, firstY + 2 * lineH) == -1

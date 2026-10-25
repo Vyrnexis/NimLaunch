@@ -1,5 +1,4 @@
 ## utils.nim — shared helper routines
-## Derived from NimLaunch, with X11-specific colour allocation removed.
 ##
 ## Side effects:
 ##   • recent-application JSON persistence
