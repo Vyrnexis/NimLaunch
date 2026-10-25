@@ -9,7 +9,7 @@ import ./state # DesktopApp
 
 proc tokenize*(cmd: string): seq[string] =
   ## Shell-ish tokenizer for Exec= lines.
-  ## Handles simple quotes, backslash escapes inside double-quotes,
+  ## Handles simple quotes, Desktop Entry escapes inside double-quotes,
   ## and whitespace splitting. Not a full shell parser.
   var cur = newStringOfCap(32)
   var i = 0
@@ -38,7 +38,9 @@ proc tokenize*(cmd: string): seq[string] =
     else:
       if c == inQuote:
         inQuote = '\0'
-      elif c == '\\' and inQuote == '"' and i+1 < cmd.len:
+      elif c == '\\' and inQuote == '"' and i+1 < cmd.len and
+          cmd[i+1] in {'"', '`', '$', '\\'}:
+        ## Inside double quotes only these are escapable; other backslashes stay.
         cur.add cmd[i+1]
         inc i
       else:
@@ -191,10 +193,10 @@ proc localeChain(): seq[string] =
         result.add language & "@" & modifier
       result.add language
 
-proc getBestValue*(entries: Table[string, string], baseKey: string): string =
-  ## Return the most specific value for *baseKey* following .desktop rules.
-  ## Order: locale preferences, then the unlocalized fallback.
-  let prefs = localeChain()
+proc getBestValue*(entries: Table[string, string], baseKey: string,
+    prefs: seq[string]): string =
+  ## Return the most specific value for *baseKey* following .desktop rules
+  ## given pre-computed locale *prefs*.
   for loc in prefs:
     let k = baseKey & "[" & loc & "]"
     if entries.hasKey(k):
@@ -203,11 +205,68 @@ proc getBestValue*(entries: Table[string, string], baseKey: string): string =
     return entries[baseKey]
   ""
 
-proc splitDesktopList(value: string): seq[string] =
-  for item in value.split(';'):
-    let cleaned = item.strip()
-    if cleaned.len > 0:
-      result.add cleaned
+proc getBestValue*(entries: Table[string, string], baseKey: string): string =
+  ## Return the most specific value for *baseKey* following .desktop rules.
+  ## Order: locale preferences, then the unlocalized fallback.
+  getBestValue(entries, baseKey, localeChain())
+
+proc unescapeDesktopValue*(value: string): string =
+  ## Unescape a desktop entry string value per the freedesktop spec:
+  ## \s -> space, \n -> newline, \t -> tab, \r -> carriage return, \\ -> \.
+  ## Also handles \; for list elements / semicolons.
+  var i = 0
+  result = newStringOfCap(value.len)
+  while i < value.len:
+    if value[i] == '\\' and i + 1 < value.len:
+      case value[i + 1]
+      of 's':
+        result.add ' '
+        inc i, 2
+      of 'n':
+        result.add '\n'
+        inc i, 2
+      of 't':
+        result.add '\t'
+        inc i, 2
+      of 'r':
+        result.add '\r'
+        inc i, 2
+      of '\\':
+        result.add '\\'
+        inc i, 2
+      of ';':
+        result.add ';'
+        inc i, 2
+      else:
+        result.add '\\'
+        result.add value[i + 1]
+        inc i, 2
+    else:
+      result.add value[i]
+      inc i
+
+proc splitDesktopList*(value: string): seq[string] =
+  ## Split semicolon-separated desktop entry list on unescaped semicolons,
+  ## and unescape each item.
+  var cur = newStringOfCap(32)
+  var i = 0
+  while i < value.len:
+    if value[i] == '\\' and i + 1 < value.len:
+      cur.add value[i]
+      cur.add value[i + 1]
+      inc i, 2
+    elif value[i] == ';':
+      let cleaned = cur.strip()
+      if cleaned.len > 0:
+        result.add unescapeDesktopValue(cleaned)
+      cur.setLen(0)
+      inc i
+    else:
+      cur.add value[i]
+      inc i
+  let cleaned = cur.strip()
+  if cleaned.len > 0:
+    result.add unescapeDesktopValue(cleaned)
 
 # ── .desktop parser ─────────────────────────────────────────────────────
 
@@ -225,6 +284,7 @@ proc parseDesktopFile*(path: string; tryExecOut: var string): Option[DesktopApp]
     return none(DesktopApp)
   defer: fs.close()
 
+  let prefs = localeChain()
   var currentSection = ""
   var kv = initTable[string, string]()
   var actionSections = initTable[string, Table[string, string]]()
@@ -254,12 +314,12 @@ proc parseDesktopFile*(path: string; tryExecOut: var string): Option[DesktopApp]
           actionSections[actionId] = initTable[string, string]()
         actionSections[actionId][key] = value
 
-  let name = getBestValue(kv, "Name")
-  let genericName = getBestValue(kv, "GenericName")
-  let keywords = splitDesktopList(getBestValue(kv, "Keywords"))
-  let exec = kv.getOrDefault("Exec", "")
-  let icon = kv.getOrDefault("Icon", "")
-  let workingDir = kv.getOrDefault("Path", "")
+  let name = unescapeDesktopValue(getBestValue(kv, "Name", prefs))
+  let genericName = unescapeDesktopValue(getBestValue(kv, "GenericName", prefs))
+  let keywords = splitDesktopList(getBestValue(kv, "Keywords", prefs))
+  let exec = unescapeDesktopValue(kv.getOrDefault("Exec", ""))
+  let icon = unescapeDesktopValue(kv.getOrDefault("Icon", ""))
+  let workingDir = unescapeDesktopValue(kv.getOrDefault("Path", ""))
   let entryType = kv.getOrDefault("Type", "Application")
   let noDisplay = kv.getOrDefault("NoDisplay", "false").toLowerAscii() == "true"
   let hidden = kv.getOrDefault("Hidden", "false").toLowerAscii() == "true"
@@ -285,11 +345,11 @@ proc parseDesktopFile*(path: string; tryExecOut: var string): Option[DesktopApp]
       if not actionSections.hasKey(actionId):
         continue
       let section = actionSections[actionId]
-      let actionName = getBestValue(section, "Name")
-      let actionExec = section.getOrDefault("Exec", "")
+      let actionName = unescapeDesktopValue(getBestValue(section, "Name", prefs))
+      let actionExec = unescapeDesktopValue(section.getOrDefault("Exec", ""))
       if actionName.len == 0 or actionExec.len == 0:
         continue
-      let actionIcon = section.getOrDefault("Icon", "")
+      let actionIcon = unescapeDesktopValue(section.getOrDefault("Icon", ""))
       let actionExpansion = expandExecArgs(actionExec, actionName, actionIcon, path)
       let actionNoDisplay = section.getOrDefault("NoDisplay", "false").toLowerAscii() == "true"
       if actionNoDisplay or not actionExpansion.valid:

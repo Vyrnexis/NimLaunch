@@ -3,7 +3,7 @@
 import std/[os, json, times, options, strutils, algorithm, hashes, sets, syncio]
 import ./[state, parser, paths]
 
-const CacheFormatVersion = 13
+const CacheFormatVersion = 14
 
 ## Derive the desktop-file ID relative to its applications directory.
 proc desktopFileId(baseDir, path: string): string =
