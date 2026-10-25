@@ -62,6 +62,7 @@ type
     borderWidth*: int
     matchFgColorHex*: string ## color for matched letters (e.g. "#FF00FF")
     showIcons*: bool
+    showClock*: bool
 
     # Prompt / font / theme / terminal ----------------------------------
     prompt*, cursor*: string
@@ -147,6 +148,7 @@ type
     config*: Config
     allApps*: seq[DesktopApp]
     inputText*: string
+    inputCursor*: int ## byte offset into inputText, on a UTF-8 boundary
     lastInputChangeMs*: int64
     selectedIndex*: int
     viewOffset*: int

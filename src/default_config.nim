@@ -10,6 +10,8 @@ const defaultToml* = """
 
 [window]
 width = 500                       # Width of the launcher window in pixels
+line_height = 22                  # Minimum row height in pixels (12 - 200); never smaller than the font needs
+show_clock = true                 # false hides the clock in the corner
 opacity = 1.0                     # Window opacity (0.1 - 1.0); requires SDL support
 max_visible_items = 10            # Number of items visible at once (affects height)
 center = true                     # true: center window horizontally; false: use position_x/position_y
@@ -27,8 +29,10 @@ cursor = "_"                      # Cursor character displayed after query text
 vim_mode = false                  # true enables Vim-style modes/hjkl navigation
 
 [terminal]
-program = "gnome-terminal"        # Terminal emulator for :r and ! commands
-                                  # If not found, NimLaunch will fall back to a default
+program = ""                      # Terminal emulator for :r, ! and Terminal=true apps
+                                  # Empty or not found: $TERMINAL is tried, then kitty,
+                                  # alacritty, wezterm, foot, gnome-terminal, konsole,
+                                  # xfce4-terminal and xterm
 
 [border]
 width = 2                         # Border thickness in pixels (0 = no border)
@@ -39,7 +43,9 @@ enabled = true                    # Set to false to hide icons in the list
 # ==========================
 # Groups
 # ==========================
-# Define group names used by [[shortcuts]].
+# Define group names used by [[shortcuts]]. Avoid the built-in command names
+# (s, c, t, r, q, quit) and shortcut prefixes: those always win, and NimLaunch
+# warns on stderr when a group can never be reached.
 # query_mode = "filter" (default) or "pass".
 
 [[groups]]

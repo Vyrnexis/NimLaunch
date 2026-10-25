@@ -24,6 +24,48 @@ proc deleteLastUtf8Rune*(text: var string) =
     dec newLen
   text.setLen(newLen)
 
+# ── Line editing (byte cursor, always on a UTF-8 boundary) ──────────────
+proc prevRunePos*(text: string; pos: int): int =
+  ## Byte offset of the rune before `pos` (0 at the start).
+  result = min(pos, text.len) - 1
+  while result > 0 and (ord(text[result]) and 0xC0) == 0x80:
+    dec result
+  result = max(result, 0)
+
+proc nextRunePos*(text: string; pos: int): int =
+  ## Byte offset just after the rune at `pos` (text.len at the end).
+  result = max(pos, 0) + 1
+  while result < text.len and (ord(text[result]) and 0xC0) == 0x80:
+    inc result
+  result = min(result, text.len)
+
+proc insertAt*(text: var string; pos: int; txt: string): int =
+  ## Insert `txt` at `pos` and return the cursor after it.
+  let at = clamp(pos, 0, text.len)
+  text.insert(txt, at)
+  at + txt.len
+
+proc deleteBefore*(text: var string; pos: int): int =
+  ## Delete the rune before `pos` and return the new cursor.
+  let at = clamp(pos, 0, text.len)
+  result = prevRunePos(text, at)
+  text.delete(result ..< at)
+
+proc deleteAfter*(text: var string; pos: int) =
+  ## Delete the rune at `pos`.
+  if pos < text.len:
+    text.delete(pos ..< nextRunePos(text, pos))
+
+proc deleteWordBefore*(text: var string; pos: int): int =
+  ## Delete the whitespace-delimited word before `pos` and return the new cursor.
+  let at = clamp(pos, 0, text.len)
+  result = at
+  while result > 0 and text[result - 1] == ' ':
+    dec result
+  while result > 0 and text[result - 1] != ' ':
+    dec result
+  text.delete(result ..< at)
+
 # ── Colour helpers ──────────────────────────────────────────────────────
 proc parseHexRgb8*(hex: string): Option[Rgb] =
   ## Parse "#RRGGBB" into Rgb; return none on bad input.

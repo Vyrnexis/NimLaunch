@@ -26,6 +26,7 @@ GPU-backed compositing; icons load through `SDL3_image`.
 - **Themes:** 84 built-in themes with live preview (`:t`); add or override themes with `[[themes]]`. The chosen theme persists in the cache directory.
 - **Icons:** PNG/SVG icons follow your icon theme (`ICON_THEME`, gsettings, GTK `settings.ini`) and its `Inherits` chain, then hicolor, pixmaps and other installed themes. Decoding runs on a background worker.
 - **Fast startup:** parsed `.desktop` entries are cached and reused until the application directories, locale/`PATH`, or `TryExec` programs change.
+- **Mouse:** wheel scrolls the selection, click selects and a second click runs.
 - **Vim mode (optional):** `j/k`, `gg/G`, `/ : !` command bar, `:q`.
 - **`--dmenu` mode:** pick from stdin items, with `rofi`-style `\0icon\x1f` icon metadata and Shift+Enter to return typed text.
 - Window opacity (0.1–1.0), long labels truncated with `…`, and an input line that scrolls to keep the cursor visible.
@@ -128,15 +129,21 @@ run.
 | --- | ------ |
 | Type text | Fuzzy-search applications |
 | Enter | Launch the highlighted entry |
-| Shift+Enter | `--dmenu` only: return the typed text, even without a match |
+| Shift+Enter | On a `:s` file result: open its folder. With `--dmenu`: return the typed text, even without a match |
 | ↑ / ↓ / PgUp / PgDn / Home / End | Move through the results (all modes, including Vim mode) |
+| Tab / Ctrl+N, Shift+Tab / Ctrl+P | Move down / up |
 | Esc | Exit NimLaunch |
-| Ctrl+U | Clear the query |
-| Backspace / Ctrl+H / ← | Delete one character |
-| Ctrl+V / Shift+Insert | Paste from the clipboard |
+| ← / → | Move the cursor one character |
+| Ctrl+A / Ctrl+E | Jump to the start / end of the query |
+| Backspace / Ctrl+H, Delete | Delete the character before / after the cursor |
+| Ctrl+W | Delete the word before the cursor |
+| Ctrl+U | Delete everything before the cursor |
+| Ctrl+V / Shift+Insert | Paste at the cursor |
+| Mouse wheel | Move the selection one row per notch |
+| Click | Select a row; click the selected row (or double-click) to run it |
 
 With `vim_mode = true`: `j`/`k` move, `gg`/`G` jump, `h` deletes a character,
-`l` activates, and `/`, `:` or `!` open a command bar. In the bar, Enter runs
+`l` activates, Tab/Shift+Tab move, and `/`, `:` or `!` open a command bar. In the bar, Enter runs
 the text, Esc closes it (keeping the narrowed results if you typed something),
 Ctrl+U clears it, and Backspace on an empty bar closes it.
 

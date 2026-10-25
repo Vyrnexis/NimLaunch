@@ -43,6 +43,8 @@ Out-of-range numbers are clamped silently.
 | Key | Type | Default | Range / values | Notes |
 | --- | ---- | ------- | -------------- | ----- |
 | `width` | int | `500` | 200–4000 | Window width in pixels |
+| `line_height` | int | `22` | 12–200 | Minimum row height in pixels; rows are never smaller than the font and icons need |
+| `show_clock` | bool | `true` | | `false` hides the clock |
 | `opacity` | float | `1.0` | 0.1–1.0 | Some compositors ignore it |
 | `max_visible_items` | int | `10` | 1–100 | Rows shown before scrolling; reduced on small displays |
 | `center` | bool | `true` | | `false` uses `position_x` / `position_y` |
@@ -66,19 +68,20 @@ compositors may ignore `position_x` / `position_y`; see
 | Key | Type | Default | Notes |
 | --- | ---- | ------- | ----- |
 | `prompt` | string | `"> "` | Shown before the query |
-| `cursor` | string | `"_"` | Shown after the query |
+| `cursor` | string | `"_"` | Shown at the cursor position in the query |
 | `vim_mode` | bool | `false` | Vim-style navigation and command bar |
 
-The input line scrolls horizontally to keep the cursor visible, and long result
-labels are truncated with `…`.
+The query supports cursor editing (←/→, Ctrl+A/E, Delete, Ctrl+W, Ctrl+U; see
+the key table in the README). The input line scrolls horizontally to keep the
+cursor visible, and long result labels are truncated with `…`.
 
 ### `[terminal]`
 
 | Key | Type | Default | Notes |
 | --- | ---- | ------- | ----- |
-| `program` | string | `"gnome-terminal"` | Terminal for `:r`, `!`, `Terminal=true` apps and `run_mode = "terminal"` shortcuts. May include arguments |
+| `program` | string | `""` | Terminal for `:r`, `!`, `Terminal=true` apps and `run_mode = "terminal"` shortcuts. May include arguments |
 
-If `program` is not installed, NimLaunch tries `$TERMINAL`, then `kitty`,
+If `program` is empty or not installed, NimLaunch tries `$TERMINAL`, then `kitty`,
 `alacritty`, `wezterm`, `foot`, `gnome-terminal`, `konsole`, `xfce4-terminal`,
 `xterm`.
 

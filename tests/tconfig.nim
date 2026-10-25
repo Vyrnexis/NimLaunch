@@ -1,4 +1,4 @@
-import std/[unittest, os, strutils, tables, sets]
+import std/[unittest, os, strutils, tables, sets, sequtils]
 import ../src/[state, settings, app_core, paths, themes]
 
 const LegacyThemeBlocks = """
@@ -287,6 +287,41 @@ bgColorHex = "#222222"
   test "obsolete [theme] last_chosen is ignored":
     loadConfigText("[theme]\nlast_chosen = \"Nord\"\n")
     check ctx.config.themeName == "Default"
+
+  test "window line_height and show_clock load, clamp and default":
+    loadConfigText("")
+    check ctx.config.lineHeight == 22
+    check ctx.config.showClock
+    check ctx.config.terminalExe == ""
+    loadConfigText("[window]\nline_height = 40\nshow_clock = false\n")
+    check ctx.config.lineHeight == 40
+    check not ctx.config.showClock
+    loadConfigText("[window]\nline_height = 1\n")
+    check ctx.config.lineHeight == 12
+    loadConfigText("[window]\nline_height = 9999\n")
+    check ctx.config.lineHeight == 200
+
+  test "nameConflicts reports shadowed groups and prefixes":
+    loadConfigText("""
+[[groups]]
+name = "s"
+[[groups]]
+name = "web"
+[[shortcuts]]
+prefix = ":q"
+base = "x"
+[[shortcuts]]
+prefix = ":web"
+base = "y"
+[[shortcuts]]
+prefix = ":ok"
+base = "z"
+""")
+    let found = nameConflicts()
+    check found.len == 3
+    check found.anyIt("group \"s\"" in it)
+    check found.anyIt("prefix \"q\"" in it)
+    check found.anyIt("prefix \"web\"" in it)
 
   test "ignore the removed pollIntervalMs setting":
     let cfgPath = getTempDir() / "nimlaunch_test_legacy_poll.toml"

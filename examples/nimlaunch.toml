@@ -11,6 +11,8 @@
 
 [window]
 width = 560                    # pixels
+line_height = 22               # minimum row height in pixels (12 - 200)
+show_clock = true              # false hides the clock
 opacity = 1.0                  # 0.1 - 1.0; some compositors ignore it
 max_visible_items = 8          # rows shown before the list scrolls
 center = true                  # false: use position_x / position_y instead

@@ -793,6 +793,7 @@ proc buildActions*() =
 # ── Perform selected action ─────────────────────────────────────────────
 proc clearInput*() =
   ctx.inputText.setLen(0)
+  ctx.inputCursor = 0
   ctx.lastInputChangeMs = gui.nowMs()
   buildActions()
 
@@ -896,11 +897,45 @@ proc performAction*(a: Action) =
     ctx.shouldExit = true
 
 # ── Input/navigation helpers ───────────────────────────────────────────
+proc inputChanged() =
+  ctx.lastInputChangeMs = gui.nowMs()
+  buildActions()
+
 proc deleteLastInputChar*() =
-  if ctx.inputText.len > 0:
-    deleteLastUtf8Rune(ctx.inputText)
-    ctx.lastInputChangeMs = gui.nowMs()
-    buildActions()
+  ## Backspace: delete the rune before the cursor.
+  ctx.inputCursor = clamp(ctx.inputCursor, 0, ctx.inputText.len)
+  if ctx.inputCursor > 0:
+    ctx.inputCursor = deleteBefore(ctx.inputText, ctx.inputCursor)
+    inputChanged()
+
+proc deleteInputCharAfter*() =
+  if ctx.inputCursor < ctx.inputText.len:
+    deleteAfter(ctx.inputText, ctx.inputCursor)
+    inputChanged()
+
+proc deleteInputWord*() =
+  if ctx.inputCursor > 0:
+    ctx.inputCursor = deleteWordBefore(ctx.inputText, ctx.inputCursor)
+    inputChanged()
+
+proc deleteInputToStart*() =
+  if ctx.inputCursor > 0:
+    ctx.inputText.delete(0 ..< ctx.inputCursor)
+    ctx.inputCursor = 0
+    inputChanged()
+
+proc insertInputText*(txt: string) =
+  ctx.inputCursor = insertAt(ctx.inputText, ctx.inputCursor, txt)
+  inputChanged()
+
+proc moveInputCursor*(step: int) =
+  ## Move the cursor one rune left (-1) or right (1).
+  ctx.inputCursor =
+    if step < 0: prevRunePos(ctx.inputText, ctx.inputCursor)
+    else: nextRunePos(ctx.inputText, ctx.inputCursor)
+
+proc setInputCursor*(atEnd: bool) =
+  ctx.inputCursor = if atEnd: ctx.inputText.len else: 0
 
 proc acceptTypedText*(): bool =
   ## Dmenu mode: return the raw typed input as the selection, like dmenu/rofi.
@@ -947,3 +982,19 @@ proc jumpToBottom*() =
   let start = ctx.actions.len - gui.visibleRowCount()
   ctx.viewOffset = if start > 0: start else: 0
   refreshThemePreview()
+
+proc selectIndex*(index: int) =
+  ## Select action `index`, scrolling it into view.
+  moveSelectionBy(index - ctx.selectedIndex)
+
+proc openContainingFolder*(): bool =
+  ## Shift+Enter on a file result: open its parent directory instead.
+  if ctx.selectedIndex notin 0..<ctx.actions.len:
+    return false
+  var a = ctx.actions[ctx.selectedIndex]
+  if a.kind != akFile:
+    return false
+  a.exec = parentDir(a.exec)
+  a.label = "folder of " & a.label
+  performAction(a)
+  true

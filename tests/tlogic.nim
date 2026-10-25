@@ -630,3 +630,74 @@ block dmenu_empty_query_lists_current_items:
   doAssert rowNames() == @["two", "three"]
   ctx.dmenuMode = false
   ctx.dmenuItems = @[]
+
+block input_editing_follows_cursor:
+  ctx.config = Config(maxVisibleItems: 10, lineHeight: 22)
+  ctx.dmenuMode = false
+  ctx.vim = VimCommandState()
+  clearInput()
+  insertInputText("héllo")
+  doAssert ctx.inputText == "héllo" and ctx.inputCursor == ctx.inputText.len
+  for _ in 0 ..< 4:
+    moveInputCursor(-1)
+  insertInputText("X")
+  doAssert ctx.inputText == "hXéllo" and ctx.inputCursor == 2
+  deleteLastInputChar()
+  doAssert ctx.inputText == "héllo" and ctx.inputCursor == 1
+  deleteInputCharAfter()
+  doAssert ctx.inputText == "hllo" and ctx.inputCursor == 1
+  setInputCursor(atEnd = true)
+  insertInputText(" wor")
+  deleteInputWord()
+  doAssert ctx.inputText == "hllo " and ctx.inputCursor == 5
+  moveInputCursor(-1)
+  deleteInputToStart()
+  doAssert ctx.inputText == " " and ctx.inputCursor == 0
+  moveInputCursor(-1)
+  doAssert ctx.inputCursor == 0
+  clearInput()
+  doAssert ctx.inputText == "" and ctx.inputCursor == 0
+
+block selecting_by_index_scrolls_into_view:
+  ctx.config = Config(maxVisibleItems: 10, lineHeight: 22)
+  ctx.actions = @[]
+  for i in 0 ..< 30:
+    ctx.actions.add Action(kind: akRun, label: $i)
+  ctx.selectedIndex = 0
+  ctx.viewOffset = 0
+  selectIndex(25)
+  doAssert ctx.selectedIndex == 25
+  doAssert ctx.viewOffset <= 25 and ctx.viewOffset + visibleRowCount() > 25
+  selectIndex(2)
+  doAssert ctx.selectedIndex == 2 and ctx.viewOffset <= 2
+
+block shift_enter_opens_folder_of_file_result:
+  ctx.config = Config(maxVisibleItems: 10, lineHeight: 22)
+  ctx.dryRunMode = true
+  ctx.shouldExit = false
+  ctx.actions = @[Action(kind: akFile, label: "a.txt", exec: "/tmp/dir/a.txt")]
+  ctx.selectedIndex = 0
+  doAssert openContainingFolder()
+  doAssert ctx.shouldExit
+  ctx.shouldExit = false
+  ctx.actions = @[Action(kind: akRun, label: "x", exec: "x")]
+  doAssert not openContainingFolder()
+  ctx.dryRunMode = false
+  ctx.shouldExit = false
+
+block row_hit_testing_maps_clicks_to_actions:
+  ctx.config = Config(winWidth: 500, maxVisibleItems: 10, lineHeight: 22)
+  ctx.actions = @[Action(kind: akRun, label: "a"), Action(kind: akRun, label: "b")]
+  ctx.viewOffset = 0
+  let lineH = float(layoutMetrics().lineH)
+  var firstY = 0.0
+  while rowAt(10.0, firstY) != 0:
+    firstY += 1.0
+    doAssert firstY < 1000.0
+  doAssert firstY > 0.0 and rowAt(10.0, firstY - 1.0) == -1
+  doAssert rowAt(10.0, firstY + lineH) == 1
+  doAssert rowAt(10.0, firstY + 2 * lineH) == -1
+  doAssert rowAt(-5.0, firstY) == -1
+  ctx.viewOffset = 1
+  doAssert rowAt(10.0, firstY) == 1
+  ctx.viewOffset = 0

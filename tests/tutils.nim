@@ -37,3 +37,41 @@ suite "Utils tests":
     check text == ""
     deleteLastUtf8Rune(text)
     check text == ""
+
+  test "cursor movement respects UTF-8 boundaries":
+    let text = "aé€b"
+    check prevRunePos(text, text.len) == text.len - 1
+    check prevRunePos(text, 3) == 1
+    check prevRunePos(text, 0) == 0
+    check nextRunePos(text, 1) == 3
+    check nextRunePos(text, 3) == 6
+    check nextRunePos(text, text.len) == text.len
+
+  test "insertAt inserts at the cursor":
+    var text = "ac"
+    check insertAt(text, 1, "é") == 3
+    check text == "aéc"
+    check insertAt(text, 99, "!") == text.len
+    check text == "aéc!"
+
+  test "deleteBefore and deleteAfter remove whole runes":
+    var text = "aéb"
+    check deleteBefore(text, 3) == 1
+    check text == "ab"
+    check deleteBefore(text, 0) == 0
+    check text == "ab"
+    text = "é€"
+    deleteAfter(text, 0)
+    check text == "€"
+    deleteAfter(text, text.len)
+    check text == "€"
+
+  test "deleteWordBefore skips trailing spaces then one word":
+    var text = "foo bar  baz"
+    check deleteWordBefore(text, text.len) == 9
+    check text == "foo bar  "
+    check deleteWordBefore(text, text.len) == 4
+    check text == "foo "
+    var mid = "one two"
+    check deleteWordBefore(mid, 4) == 0
+    check mid == "two"

@@ -163,6 +163,12 @@ proc main*() =
       of EVENT_TEXT_INPUT:
         if handleTextInput(ev, focus):
           needsRedraw = true
+      of EVENT_MOUSE_WHEEL:
+        if handleMouseWheel(ev):
+          needsRedraw = true
+      of EVENT_MOUSE_BUTTON_DOWN:
+        if handleMouseButton(ev):
+          needsRedraw = true
       of EVENT_TEXT_EDITING:
         if handleTextEditing(ev):
           needsRedraw = true

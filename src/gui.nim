@@ -147,6 +147,7 @@ const
   BaseIconSizeInset = 2
   ThemeFadeMs = 500 ## duration of the theme-name overlay fade
   FadeFrameMs = 16  ## redraw interval while the fade is animating
+  ClockOffWaitMs = 3_600_000 ## idle wait when the clock is hidden
 
 var
   lastThemeSwitchMs*: int64 = 0
@@ -580,6 +581,17 @@ proc layoutMetrics*(): tuple[logicalW, logicalH, drawW, drawH, lineH, iconSlot,
    m.iconSlotPx, m.borderWidthPx, m.scale, m.displayScale, m.pixelDensity,
    m.contentScale, m.displayID)
 
+## Map window coordinates (from mouse events) to an action index, or -1.
+proc rowAt*(x, y: float): int =
+  let m = currentMetrics()
+  let px = x * m.drawW.float / max(1, m.logicalWinW).float
+  let py = y * m.drawH.float / max(1, m.logicalWinH).float
+  if px < 0 or px >= m.drawW.float or py < m.contentTopPx.float:
+    return -1
+  let slot = int((py - m.contentTopPx.float) / m.lineHeightPx.float)
+  let idx = ctx.viewOffset + slot
+  if slot >= m.visibleRows or idx >= ctx.actions.len: -1 else: idx
+
 ## Return the number of fully visible rows in the current layout.
 proc visibleRowCount*(): int =
   max(1, currentMetrics().visibleRows)
@@ -619,7 +631,7 @@ proc needsTimedRedraw*(): bool =
   if statusText.len > 0 and currentMs > statusUntilMs:
     statusText.setLen(0)
     return true
-  minuteOfDay(now()) != lastClockMinute
+  ctx.config.showClock and minuteOfDay(now()) != lastClockMinute
 
 ## Return the nowMs() time of the next fade frame, status expiry, or clock
 ## minute change. A time at or before now() means a redraw is already due.
@@ -629,6 +641,8 @@ proc nextRedrawDeadlineMs*(): int64 =
     return currentMs + FadeFrameMs
   if statusText.len > 0:
     return statusUntilMs + 1
+  if not ctx.config.showClock:
+    return currentMs + ClockOffWaitMs
   let t = now()
   if minuteOfDay(t) != lastClockMinute:
     return currentMs
@@ -924,26 +938,49 @@ proc fitRuns(text: string; spans: seq[(int, int)]; avail: int;
   runs = buildRuns(cuts[lo], spans)
   true
 
-proc fitTail(prompt, body, cursor: string; avail: int): string =
-  ## `prompt & body & cursor`; when too wide, keep the prompt, an ellipsis and
-  ## the end of `body` so the caret stays visible.
-  result = prompt & body & cursor
+proc runeCuts(text: string): seq[int] =
+  ## Byte offsets of every rune boundary in `text`, including its end.
+  for i in 0 .. text.len:
+    if i == text.len or (ord(text[i]) and 0xC0) != 0x80:
+      result.add i
+
+proc fitCaret(prompt, body: string; pos: int; cursor: string; avail: int): string =
+  ## `prompt & body & cursor` with the cursor inserted at byte `pos` of `body`.
+  ## When too wide, keep the prompt and caret, eliding the start of the text
+  ## before the caret first and then the end of the text after it.
+  let pos = clamp(pos, 0, body.len)
+  let before = body[0 ..< pos]
+  let after = body[pos .. ^1]
+  result = prompt & before & cursor & after
   if measureText(st.font, result)[0] <= avail:
     return
-  var cuts: seq[int] = @[]
-  for i in 0 .. body.len:
-    if i == body.len or (ord(body[i]) and 0xC0) != 0x80:
-      cuts.add i
   ## Larger cut index = shorter tail = narrower line.
+  let cuts = runeCuts(before)
+  if measureText(st.font, prompt & Ellipsis & cursor & after)[0] <= avail:
+    var lo = 0
+    var hi = cuts.high
+    while lo < hi:
+      let mid = (lo + hi) div 2
+      if measureText(st.font, prompt & Ellipsis & before[cuts[mid] .. ^1] &
+          cursor & after)[0] <= avail:
+        hi = mid
+      else:
+        lo = mid + 1
+    return prompt & Ellipsis & before[cuts[lo] .. ^1] & cursor & after
+  ## Even a bare caret overflows: keep as much of the text after it as fits.
+  let afterCuts = runeCuts(after)
   var lo = 0
-  var hi = cuts.high
+  var hi = afterCuts.high
   while lo < hi:
-    let mid = (lo + hi) div 2
-    if measureText(st.font, prompt & Ellipsis & body[cuts[mid] .. ^1] & cursor)[0] <= avail:
-      hi = mid
+    let mid = (lo + hi + 1) div 2
+    if measureText(st.font, prompt & Ellipsis & cursor & after[0 ..< afterCuts[mid]] &
+        Ellipsis)[0] <= avail:
+      lo = mid
     else:
-      lo = mid + 1
-  result = prompt & Ellipsis & body[cuts[lo] .. ^1] & cursor
+      hi = mid - 1
+  result = prompt & Ellipsis & cursor & after[0 ..< afterCuts[lo]]
+  if afterCuts[lo] < after.len:
+    result.add Ellipsis
 
 proc drawText(x, y: int; text: string; spans: seq[(int, int)] = @[];
     selected = false; iconName = "") =
@@ -1027,7 +1064,7 @@ proc drawPromptAndInput(y: var int) =
   # Prompt + input line (hidden in Vim mode to mirror original)
   if not ctx.config.vimMode:
     let rowX = roundScaled(BasePromptInset, m.scale)
-    let promptLine = fitTail(ctx.config.prompt, ctx.inputText, ctx.config.cursor,
+    let promptLine = fitCaret(ctx.config.prompt, ctx.inputText, ctx.inputCursor, ctx.config.cursor,
         rowTextAvail(rowX, rowX + m.rowTextInsetPx))
     drawText(rowX, y, promptLine)
     y += m.lineHeightPx + m.rowGapPx
@@ -1054,10 +1091,8 @@ proc drawOverlays() =
     drawThemeOverlay()
   else:
     drawStatusOverlay()
-  if ctx.config.vimMode:
-    drawClock(topRight = true)
-  else:
-    drawClock()
+  if ctx.config.showClock:
+    drawClock(topRight = ctx.config.vimMode)
 
 proc drawCommandBar() =
   if not (ctx.config.vimMode and ctx.vim.active):
@@ -1076,7 +1111,7 @@ proc drawCommandBar() =
     textX += blitText(st.font, ctx.vim.prefix, colHighlightFg, textX, barTop,
         barHeight) + m.overlayStackGapPx
   if ctx.vim.buffer.len > 0:
-    let barText = fitTail("", ctx.vim.buffer, "", max(1, m.drawW - padX - textX))
+    let barText = fitCaret("", ctx.vim.buffer, ctx.vim.buffer.len, "", max(1, m.drawW - padX - textX))
     discard blitText(st.font, barText, colHighlightFg, textX, barTop, barHeight)
 
 proc drawBorder() =

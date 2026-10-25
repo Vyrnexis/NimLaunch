@@ -170,6 +170,7 @@ proc resetVimState*() =
 
 proc syncVimCommand*() =
   ctx.inputText = ctx.vim.prefix & ctx.vim.buffer
+  ctx.inputCursor = ctx.inputText.len
   ctx.lastInputChangeMs = gui.nowMs()
   buildActions()
 
@@ -213,6 +214,7 @@ proc closeVimCommand*(restoreInput = false; preserveBuffer = false) =
 
   if restoreInput and ctx.vim.restorePending:
     ctx.inputText = savedInput
+    ctx.inputCursor = savedInput.len
     ctx.lastInputChangeMs = gui.nowMs()
     buildActions()
 
@@ -246,6 +248,7 @@ proc executeVimCommand*() =
     ctx.shouldExit = true
     return
   ctx.inputText = trimmed
+  ctx.inputCursor = trimmed.len
   ctx.lastInputChangeMs = gui.nowMs()
   buildActions()
   if trimmed.len == 0 or (trimmed[0] != ':' and trimmed[0] != '!'):
@@ -259,9 +262,7 @@ proc appendTextInput*(txt: string) =
     ctx.vim.buffer.add(txt)
     syncVimCommand()
   else:
-    ctx.inputText.add(txt)
-    ctx.lastInputChangeMs = gui.nowMs()
-    buildActions()
+    insertInputText(txt)
 
 proc handleWindowEvent*(ev: Event; focus: var FocusState): bool =
   ## Handle window lifecycle/resize events and report whether a redraw is needed.
@@ -303,9 +304,17 @@ proc handleWindowEvent*(ev: Event; focus: var FocusState): bool =
 
   needsRedraw
 
-proc handleNavigationKey(sym: Keycode): bool =
+proc handleNavigationKey(sym: Keycode; modState: Keymod): bool =
   ## Handle list navigation and activation keys shared by all input modes.
+  let shiftHeld = (modState and KMOD_SHIFT) != 0
+  let ctrlHeld = (modState and KMOD_CTRL) != 0
+  if ctrlHeld and (sym == uint32(ord('n')) or sym == uint32(ord('p'))):
+    moveSelectionBy(if sym == uint32(ord('n')): 1 else: -1)
+    return true
   case sym
+  of SDLK_TAB:
+    moveSelectionBy(if shiftHeld: -1 else: 1)
+    true
   of SDLK_RETURN:
     activateCurrentSelection()
     true
@@ -343,17 +352,21 @@ proc handleKeyDown*(ev: Event; focus: var FocusState): bool =
     handled = pasteInputText()
   elif shiftHeld and sym == SDLK_INSERT:
     handled = pasteInputText()
-  elif shiftHeld and sym == SDLK_RETURN and acceptTypedText():
+  elif shiftHeld and sym == SDLK_RETURN and
+      (openContainingFolder() or acceptTypedText()):
     handled = true
   elif ctx.config.vimMode:
     handled = handleVimKey(sym, modState)
     if not handled:
-      handled = handleNavigationKey(sym)
-  elif sym == uint32(ord('u')) and ctrlHeld:
-    clearInput()
-    handled = true
-  elif sym == uint32(ord('h')) and ctrlHeld:
-    deleteLastInputChar()
+      handled = handleNavigationKey(sym, modState)
+  elif ctrlHeld and sym in [uint32(ord('u')), uint32(ord('h')), uint32(ord('w')),
+      uint32(ord('a')), uint32(ord('e'))]:
+    case char(sym)
+    of 'u': deleteInputToStart()
+    of 'h': deleteLastInputChar()
+    of 'w': deleteInputWord()
+    of 'a': setInputCursor(atEnd = false)
+    else: setInputCursor(atEnd = true)
     handled = true
   else:
     case sym
@@ -363,13 +376,17 @@ proc handleKeyDown*(ev: Event; focus: var FocusState): bool =
     of SDLK_BACKSPACE:
       deleteLastInputChar()
       handled = true
+    of SDLK_DELETE:
+      deleteInputCharAfter()
+      handled = true
     of SDLK_LEFT:
-      deleteLastInputChar()
+      moveInputCursor(-1)
       handled = true
     of SDLK_RIGHT:
-      discard
+      moveInputCursor(1)
+      handled = true
     else:
-      handled = handleNavigationKey(sym)
+      handled = handleNavigationKey(sym, modState)
 
   handled
 
@@ -394,4 +411,35 @@ proc handleTextInput*(ev: Event; focus: var FocusState): bool =
       ctx.vim.pendingG = false
       return true
   appendTextInput(s)
+  true
+
+var wheelRemainder = 0.0 ## fractional scroll left over from smooth wheels
+
+proc handleMouseWheel*(ev: Event): bool =
+  ## Scroll the selection one row per wheel notch; touchpad fractions add up.
+  if not gui.ownsWindowID(ev.wheel.windowID):
+    return false
+  var dy = ev.wheel.y.float
+  if ev.wheel.direction == MOUSEWHEEL_FLIPPED:
+    dy = -dy
+  wheelRemainder += dy
+  let rows = int(wheelRemainder) # truncates toward zero
+  if rows == 0:
+    return false
+  wheelRemainder -= rows.float
+  moveSelectionBy(-rows)
+  true
+
+proc handleMouseButton*(ev: Event): bool =
+  ## Left click selects a row; clicking the selected row or double-clicking runs it.
+  if not gui.ownsWindowID(ev.button.windowID) or ev.button.button != 1:
+    return false
+  let row = gui.rowAt(ev.button.x, ev.button.y)
+  if row < 0:
+    return false
+  if row == ctx.selectedIndex or ev.button.clicks >= 2:
+    selectIndex(row)
+    activateCurrentSelection()
+  else:
+    selectIndex(row)
   true

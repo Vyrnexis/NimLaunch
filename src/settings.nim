@@ -1,6 +1,6 @@
 ## settings.nim — config and theme loading for NimLaunch.
 
-import std/[os, strutils, math, options, tables, syncio]
+import std/[os, strutils, math, options, tables, syncio, algorithm]
 import parsetoml as toml
 import ./[state as st, gui, utils, paths, themes]
 
@@ -157,6 +157,26 @@ proc ensureGroupDefaults() =
     if not ctx.groupQueryModes.hasKey(sc.group):
       ctx.groupQueryModes[sc.group] = gqmFilter
 
+const BuiltinKeywords = ["s", "c", "t", "r", "q", "quit"]
+
+proc nameConflicts*(): seq[string] =
+  ## Describe groups and shortcut prefixes that a built-in command or a
+  ## shortcut shadows, since parseCommand never reaches them.
+  var groups: seq[string] = @[]
+  for name in ctx.groupQueryModes.keys:
+    groups.add name
+  groups.sort()
+  for name in groups:
+    if name in BuiltinKeywords:
+      result.add "group \"" & name & "\" is shadowed by the built-in :" & name & " command"
+  for sc in ctx.shortcuts:
+    if sc.prefix.len == 0: continue
+    if sc.prefix in BuiltinKeywords:
+      result.add "shortcut prefix \"" & sc.prefix &
+          "\" is shadowed by the built-in :" & sc.prefix & " command"
+    elif ctx.groupQueryModes.hasKey(sc.prefix):
+      result.add "shortcut prefix \"" & sc.prefix & "\" shadows the group of the same name"
+
 proc initLauncherConfig*() =
   ## Initialize defaults, read TOML, apply last theme, compute geometry.
   ctx.config = Config() # zero-init
@@ -175,11 +195,11 @@ proc initLauncherConfig*() =
   ctx.config.prompt = "> "
   ctx.config.cursor = "_"
   ctx.config.opacity = 1.0
-  ctx.config.terminalExe = "gnome-terminal"
   ctx.config.borderWidth = 2
   ctx.config.matchFgColorHex = "#f8c291"
   ctx.config.vimMode = false
   ctx.config.showIcons = true
+  ctx.config.showClock = true
 
   ## Ensure TOML exists
   let cfgDir = configDir()
@@ -209,6 +229,10 @@ proc initLauncherConfig*() =
   ## window
   withSection(tbl, "window", cfgPath):
     ctx.config.winWidth = sec.getOrDefault("width").getInt(ctx.config.winWidth)
+    ctx.config.lineHeight = sec.getOrDefault("line_height").getInt(
+        ctx.config.lineHeight)
+    ctx.config.showClock = sec.getOrDefault("show_clock").getBool(
+        ctx.config.showClock)
     ctx.config.maxVisibleItems = sec.getOrDefault("max_visible_items").getInt(
         ctx.config.maxVisibleItems)
     ctx.config.centerWindow = sec.getOrDefault("center").getBool(
@@ -275,6 +299,8 @@ proc initLauncherConfig*() =
   loadGroupsSection(tbl, cfgPath)
   loadShortcutsSection(tbl, cfgPath)
   ensureGroupDefaults()
+  for msg in nameConflicts():
+    stderr.writeLine "NimLaunch warning: " & msg
 
   ## Active theme: the name saved by `:t` (case-insensitive), else the first theme.
   var lastName = ""
@@ -308,6 +334,7 @@ proc initLauncherConfig*() =
   ## guard rails for ctx.config values that affect layout/search limits
   ctx.config.winWidth = clamp(ctx.config.winWidth, 200, 4000)
   ctx.config.maxVisibleItems = clamp(ctx.config.maxVisibleItems, 1, 100)
+  ctx.config.lineHeight = clamp(ctx.config.lineHeight, 12, 200)
   if ctx.config.borderWidth < 0:
     ctx.config.borderWidth = 0
   elif ctx.config.borderWidth > 64:
