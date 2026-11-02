@@ -145,7 +145,8 @@ run.
 With `vim_mode = true`: `j`/`k` move, `gg`/`G` jump, `h` deletes a character,
 `l` activates, Tab/Shift+Tab move, and `/`, `:` or `!` open a command bar. In the bar, Enter runs
 the text, Esc closes it (keeping the narrowed results if you typed something),
-Ctrl+U clears it, and Backspace on an empty bar closes it.
+and Backspace on an empty bar closes it. The bar supports the same cursor
+editing keys as the search box.
 
 ### Prefixes
 

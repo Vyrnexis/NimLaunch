@@ -29,15 +29,6 @@ suite "Utils tests":
     check normalizePrefix("  :svc:  ") == "svc"
     check normalizePrefix("sys") == "sys"
 
-  test "deleteLastUtf8Rune removes complete code points":
-    var text = "aé"
-    deleteLastUtf8Rune(text)
-    check text == "a"
-    deleteLastUtf8Rune(text)
-    check text == ""
-    deleteLastUtf8Rune(text)
-    check text == ""
-
   test "cursor movement respects UTF-8 boundaries":
     let text = "aé€b"
     check prevRunePos(text, text.len) == text.len - 1

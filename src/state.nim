@@ -127,6 +127,7 @@ type
   VimCommandState* = object
     prefix*: string
     buffer*: string
+    cursor*: int ## byte offset into `buffer`, on a rune boundary
     lastSearch*: string
     pendingG*: bool
     active*: bool

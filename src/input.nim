@@ -86,35 +86,73 @@ proc shouldExitOnFocusLoss*(fs: FocusState): bool =
   let postGain = (now - fs.lastGainMs) > 150
   fs.hadFocus and armed and postGain
 
+proc vimCursor(): int =
+  ## Command-bar cursor clamped to the buffer.
+  ctx.vim.cursor = clamp(ctx.vim.cursor, 0, ctx.vim.buffer.len)
+  ctx.vim.cursor
+
+proc vimMoveCursor(pos: int) =
+  ## Move the command-bar cursor without re-running the search.
+  ctx.vim.cursor = pos
+  ctx.inputCursor = ctx.vim.prefix.len + vimCursor()
+
+proc vimBackspace() =
+  ## Delete the rune before the cursor; an empty bar closes instead.
+  if ctx.vim.buffer.len == 0:
+    closeVimCommand(restoreInput = true, preserveBuffer = false)
+  elif vimCursor() > 0:
+    ctx.vim.cursor = deleteBefore(ctx.vim.buffer, ctx.vim.cursor)
+    syncVimCommand()
+
 proc handleVimCommandKey*(sym: Keycode; ctrlHeld: bool): bool =
   ## Handle Vim command-line keys. Return true if the key was consumed.
+  if ctrlHeld:
+    case sym
+    of uint32(ord('h')):
+      vimBackspace()
+      return true
+    of uint32(ord('u')):
+      if vimCursor() > 0:
+        ctx.vim.buffer.delete(0 ..< ctx.vim.cursor)
+        ctx.vim.cursor = 0
+        syncVimCommand()
+      return true
+    of uint32(ord('w')):
+      if vimCursor() > 0:
+        ctx.vim.cursor = deleteWordBefore(ctx.vim.buffer, ctx.vim.cursor)
+        syncVimCommand()
+      return true
+    of uint32(ord('a')):
+      vimMoveCursor(0)
+      return true
+    of uint32(ord('e')):
+      vimMoveCursor(ctx.vim.buffer.len)
+      return true
+    else:
+      discard
   case sym
   of SDLK_RETURN:
     executeVimCommand()
     true
-  of SDLK_BACKSPACE, SDLK_DELETE:
-    if ctx.vim.buffer.len > 0:
-      deleteLastUtf8Rune(ctx.vim.buffer)
+  of SDLK_BACKSPACE:
+    vimBackspace()
+    true
+  of SDLK_DELETE:
+    if vimCursor() < ctx.vim.buffer.len:
+      deleteAfter(ctx.vim.buffer, ctx.vim.cursor)
       syncVimCommand()
-    else:
-      closeVimCommand(restoreInput = true, preserveBuffer = false)
+    true
+  of SDLK_LEFT:
+    vimMoveCursor(prevRunePos(ctx.vim.buffer, vimCursor()))
+    true
+  of SDLK_RIGHT:
+    vimMoveCursor(nextRunePos(ctx.vim.buffer, vimCursor()))
+    true
+  of SDLK_ESCAPE:
+    let restore = ctx.vim.buffer.len == 0
+    closeVimCommand(restoreInput = restore, preserveBuffer = true)
     true
   else:
-    if ctrlHeld and sym == uint32(ord('h')):
-      if ctx.vim.buffer.len > 0:
-        deleteLastUtf8Rune(ctx.vim.buffer)
-        syncVimCommand()
-      else:
-        closeVimCommand(restoreInput = true, preserveBuffer = false)
-      return true
-    if ctrlHeld and sym == uint32(ord('u')):
-      ctx.vim.buffer.setLen(0)
-      syncVimCommand()
-      return true
-    if sym == SDLK_ESCAPE:
-      let restore = ctx.vim.buffer.len == 0
-      closeVimCommand(restoreInput = restore, preserveBuffer = true)
-      return true
     ## Printable characters are handled by TextInput; do not block.
     false
 
@@ -167,7 +205,7 @@ proc resetVimState*() =
 
 proc syncVimCommand*() =
   ctx.inputText = ctx.vim.prefix & ctx.vim.buffer
-  ctx.inputCursor = ctx.inputText.len
+  ctx.inputCursor = ctx.vim.prefix.len + vimCursor()
   ctx.lastInputChangeMs = gui.nowMs()
   buildActions()
 
@@ -190,6 +228,7 @@ proc openVimCommand*(initial: string = "") =
       ctx.vim.buffer = ctx.vim.lastSearch
     else:
       ctx.vim.buffer = initial
+  ctx.vim.cursor = ctx.vim.buffer.len
   ctx.vim.active = true
   ctx.vim.pendingG = false
   syncVimCommand()
@@ -205,6 +244,7 @@ proc closeVimCommand*(restoreInput = false; preserveBuffer = false) =
   elif preserveBuffer and (savedBuffer[0] != ':' and savedBuffer[0] != '!'):
     ctx.vim.lastSearch = savedBuffer
   ctx.vim.buffer.setLen(0)
+  ctx.vim.cursor = 0
   ctx.vim.prefix = ""
   ctx.vim.active = false
   ctx.vim.pendingG = false
@@ -253,7 +293,7 @@ proc executeVimCommand*() =
 proc appendTextInput*(txt: string) =
   if txt.len == 0: return
   if ctx.config.vimMode and ctx.vim.active:
-    ctx.vim.buffer.add(txt)
+    ctx.vim.cursor = insertAt(ctx.vim.buffer, vimCursor(), txt)
     syncVimCommand()
   else:
     insertInputText(txt)

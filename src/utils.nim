@@ -14,15 +14,6 @@ proc normalizePrefix*(prefix: string): string =
   ## lowercasing so parsing is resilient to variants like ":g", "g:" or ":G:".
   prefix.strip(chars = Whitespace + {':'}).toLowerAscii
 
-proc deleteLastUtf8Rune*(text: var string) =
-  ## Remove the final UTF-8 code point without leaving continuation bytes.
-  if text.len == 0:
-    return
-  var newLen = text.len - 1
-  while newLen > 0 and (ord(text[newLen]) and 0xC0) == 0x80:
-    dec newLen
-  text.setLen(newLen)
-
 # ── Line editing (byte cursor, always on a UTF-8 boundary) ──────────────
 proc prevRunePos*(text: string; pos: int): int =
   ## Byte offset of the rune before `pos` (0 at the start).

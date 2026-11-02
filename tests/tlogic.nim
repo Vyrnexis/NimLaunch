@@ -199,12 +199,71 @@ block vim_backspace_does_not_drop_later_text:
   ctx.config.vimMode = true
   ctx.vim.active = true
   ctx.vim.buffer = "ab"
+  ctx.vim.cursor = 2
   doAssert handleVimCommandKey(SDLK_BACKSPACE, false)
   var event: Event
   event.text.text = "c"
   var focus: FocusState
   doAssert handleTextInput(event, focus)
   doAssert ctx.vim.buffer == "ac"
+
+block vim_command_bar_cursor_editing:
+  ctx.config.vimMode = true
+  var focus: FocusState
+  proc typeText(s: string) =
+    var event: Event
+    event.text.text = cstring(s)
+    doAssert handleTextInput(event, focus)
+  proc key(sym: Keycode; ctrl = false) =
+    doAssert handleVimCommandKey(sym, ctrl)
+  proc setBar(prefix, buffer: string; cursor: int) =
+    ctx.vim.active = true
+    ctx.vim.prefix = prefix
+    ctx.vim.buffer = buffer
+    ctx.vim.cursor = cursor
+    syncVimCommand()
+  # insert in the middle, cursor tracks the prefix
+  setBar(":", "ac", 1)
+  doAssert ctx.inputCursor == 2
+  typeText("b")
+  doAssert ctx.vim.buffer == "abc" and ctx.vim.cursor == 2
+  doAssert ctx.inputText == ":abc" and ctx.inputCursor == 3
+  # Left/Right over a multi-byte rune, without re-running the search
+  setBar("", "aéb", 4)
+  ctx.lastInputChangeMs = 0
+  key(SDLK_LEFT)
+  doAssert ctx.vim.cursor == 3 and ctx.inputCursor == 3
+  doAssert ctx.lastInputChangeMs == 0
+  key(SDLK_LEFT)
+  doAssert ctx.vim.cursor == 1
+  key(SDLK_RIGHT)
+  doAssert ctx.vim.cursor == 3
+  # Ctrl+A / Ctrl+E stay inside the buffer
+  setBar(":", "abc", 2)
+  key(uint32(ord('a')), ctrl = true)
+  doAssert ctx.vim.cursor == 0 and ctx.inputCursor == 1
+  key(uint32(ord('e')), ctrl = true)
+  doAssert ctx.vim.cursor == 3 and ctx.inputCursor == 4
+  # Delete mid-buffer and at the end
+  setBar("", "abc", 1)
+  key(SDLK_DELETE)
+  doAssert ctx.vim.buffer == "ac" and ctx.vim.cursor == 1
+  setBar("", "ac", 2)
+  key(SDLK_DELETE)
+  doAssert ctx.vim.buffer == "ac" and ctx.vim.active
+  # Backspace at cursor 0 with text does nothing
+  setBar("", "ac", 0)
+  key(SDLK_BACKSPACE)
+  doAssert ctx.vim.buffer == "ac" and ctx.vim.cursor == 0 and ctx.vim.active
+  # Ctrl+W deletes the word before the cursor
+  setBar("", "foo bar baz", 7)
+  key(uint32(ord('w')), ctrl = true)
+  doAssert ctx.vim.buffer == "foo  baz" and ctx.vim.cursor == 4
+  # Ctrl+U deletes only before the cursor
+  setBar("", "foobar", 3)
+  key(uint32(ord('u')), ctrl = true)
+  doAssert ctx.vim.buffer == "bar" and ctx.vim.cursor == 0
+  ctx.vim = VimCommandState()
 
 block same_name_apps_keep_distinct_identity:
   ctx.config = Config(maxVisibleItems: 10, lineHeight: 22)
